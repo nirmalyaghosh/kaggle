@@ -3,7 +3,7 @@
 Script for training various models.
 """
 
-from sklearn import svm
+from sklearn import grid_search, svm
 from sklearn.calibration import CalibratedClassifierCV
 import csv
 import gzip
@@ -84,5 +84,20 @@ def train_model_01():
     train_and_make_predictions(clf, X, Y, test, "01 (LinearSVC)")
 
 
+def train_model_02():
+    train, test = read_dataset(1)
+    test = test.drop(test.columns[0], axis=1)
+    l = list(train.columns.values)
+    X = train[l[:-1]]
+    Y = train[l[-1]]
+    gs_params = { 
+        "kernel" : ["linear", "rbf"], "C" : [1, 10]
+    }
+    svc = svm.SVC(decision_function_shape='ovo', random_state=720, 
+                  probability = True)
+    clf = grid_search.GridSearchCV(svc, gs_params, n_jobs=2, verbose=2)
+    train_and_make_predictions(clf, X, Y, test, "02 - SVC (apply 'ovo')")
+
+
 if __name__ == '__main__':
-    train_model_01()
+    train_model_02()
