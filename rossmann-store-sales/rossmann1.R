@@ -4,6 +4,7 @@
 # - not using columns :
 #     CompetitionOpenSince[Month/Year]
 #     Promo2Since[Year/Week]
+#     StateHoliday
 #
 # References:
 # https://www.kaggle.com/abhilashawasthi/rossmann-store-sales/xgb-rossmann/run/86608/code
@@ -47,15 +48,18 @@ test$Year <- as.integer(format(test$Date, "%Y"))
 test <- test[c(1:4,9:11,5:8)]
 test$Date <- NULL
 
-# Preprocessing the store dataset. This involves :
-# - dropping columns which I can't handle at the moment
-# - assuming average distance when CompetitionDistance is NA
-message("Dropping columns : CompetitionOpenSince[Month/Year]")
+# Dropping columns which I can't handle at the moment
+message(paste("Dropping columns :", "StateHoliday,",
+              "CompetitionOpenSince[Month/Year],", "Promo2Since[Month/Year]"))
+train$StateHoliday <- NULL
+test$StateHoliday <- NULL
 store$CompetitionOpenSinceMonth <- NULL
 store$CompetitionOpenSinceYear <- NULL
-message("Dropping columns : Promo2Since[Month/Year]")
 store$Promo2SinceWeek <- NULL
 store$Promo2SinceYear <- NULL
+
+# Preprocessing the store dataset. This involves :
+# - assuming average distance when CompetitionDistance is NA
 message("Assuming average CompetitionDistance when NA")
 store[is.na(store$CompetitionDistance), "CompetitionDistance"] =
   as.integer(mean(na.omit(store$CompetitionDistance)))
@@ -71,9 +75,7 @@ train <- train[ which(train$Open=='1'),] # Reduction from 1017209 to 844392
 train <- train[ which(train$Sales!='0'),] # Reduction from 844392 to 844338
 
 # Change columns which contain characters into integers
-for (f in c("StateHoliday", "SchoolHoliday", "StoreType", "Assortment",
-            "PromoInterval")) {
-  message("Changing column",f," from character to integer type")
+for (f in c("SchoolHoliday", "StoreType", "Assortment", "PromoInterval")) {
   train[[f]] <- as.integer(as.factor(train[[f]]))
   test[[f]] <- as.integer(as.factor(test[[f]]))
 }
@@ -87,7 +89,7 @@ gc()
 
 # Making train and validation matrices
 message("Making train and validation matrices")
-feature.names <- names(train)[c(1,3:6,8:17)]
+feature.names <- names(train)[c(1,3:6,9:16)] #NOTE : No Sales or Customers columns
 dtrain <- xgb.DMatrix(data.matrix(train60p[,feature.names]),
                       label=log(train60p$Sales+1))
 dval <- xgb.DMatrix(data.matrix(val[,feature.names]), label=log(val$Sales+1))
@@ -142,8 +144,8 @@ pred_sales <- exp(predict(clf, data.matrix(test[,feature.names]),
 submission <- data.frame(Id=test$Id, Sales=pred_sales)
 
 # Creating the submissions file
-current_ts = format(Sys.time(), "%a_%d%b%Y_%H%M%S")
-filename = paste("submissions/",current_ts,".csv",sep="")
+current_ts = format(Sys.time(), "%d%b%Y_%H%M")
+filename = paste("submissions/model_1_",current_ts,".csv",sep="")
 write.table(submission[order(submission$Id),], filename, row.names=FALSE,
             sep=",")
 message(paste("Finished running script for Rossmann Model 1. See",filename,"\n"))
