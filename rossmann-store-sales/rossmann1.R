@@ -13,6 +13,7 @@
 library(readr)
 library(rlogging)
 library(xgboost)
+library(yaml)
 
 set.seed(720)
 rm(list=ls())
@@ -21,6 +22,7 @@ message("Reading the train and test data for Rossmann Model 1")
 train  <- read_csv("data/train.csv.zip", col_types="nnDnnnncc")
 test  <- read_csv("data/test.csv.zip", col_types="nnnDnncc")
 store <- read_csv("data/store.csv.zip")
+config = yaml.load_file("rossmann.yml")
 
 # Replacing missing values with 0
 train[is.na(train)] <- 0
@@ -77,7 +79,7 @@ for (f in c("StateHoliday", "SchoolHoliday", "StoreType", "Assortment",
 }
 
 # Creating the training and evaluation datasets
-val_r = 0.4
+val_r = config$model1$train_eval_split
 message(sprintf("Using %.2f%% of raw training data for validation",(val_r*100)))
 val <- train[sample(nrow(train), as.integer(nrow(train)*val_r)),]
 train60p <- subset(train, ! Id %in% val$Id )
@@ -96,10 +98,10 @@ gc()
 param <- list(
   objective        = "reg:linear",
   booster          = "gbtree",
-  eta              = 0.01,
-  max_depth        = 8,
-  subsample        = 0.7,
-  colsample_bytree = 0.7
+  eta              = config$model1$eta,
+  max_depth        = config$model1$max_depth,
+  subsample        = config$model1$subsample,
+  colsample_bytree = config$model1$colsample_bytree
 )
 
 # Evaluation function
@@ -112,16 +114,16 @@ RMPSE <- function(preds, dtrain) {
 }
 
 # Train the model
-nr = 900
-message(paste0("Start training model. Params : nrounds=",nr,
+message(paste0("Start training model. Params : nrounds=",config$model1$nrounds,
+               ", early.stop.round=",config$model1$early_stop_round,
                ", eta=", param$eta, ", max_depth=",param$max_depth,
                ", subsample=",param$subsample,
                ", colsample_bytree=",param$colsample_bytree))
 clf <- xgb.train(
   params           = param,
   data             = dtrain,
-  nrounds          = nr,
-  early.stop.round = 20,
+  nrounds          = config$model1$nrounds,
+  early.stop.round = config$model1$early_stop_round,
   verbose          = 1,
   watchlist        = watchlist,
   maximize         = FALSE,
@@ -142,5 +144,6 @@ submission <- data.frame(Id=test$Id, Sales=pred_sales)
 # Creating the submissions file
 current_ts = format(Sys.time(), "%a_%d%b%Y_%H%M%S")
 filename = paste("submissions/",current_ts,".csv",sep="")
-write_csv(submission, filename)
+write.table(submission[order(submission$Id),], filename, row.names=FALSE,
+            sep=",")
 message(paste("Finished running script for Rossmann Model 1. See",filename,"\n"))
