@@ -76,8 +76,10 @@ for (f in c("StateHoliday", "SchoolHoliday", "StoreType", "Assortment",
   test[[f]] <- as.integer(as.factor(test[[f]]))
 }
 
-# Use 40% of the original training data for validation
-val <- train[sample(nrow(train), as.integer(nrow(train)*0.4)),]
+# Creating the training and evaluation datasets
+val_r = 0.4
+message(sprintf("Using %.2f%% of raw training data for validation",(val_r*100)))
+val <- train[sample(nrow(train), as.integer(nrow(train)*val_r)),]
 train60p <- subset(train, ! Id %in% val$Id )
 gc()
 
@@ -128,7 +130,7 @@ clf <- xgb.train(
 the_bestScore <- clf$bestScore
 the_bestInd <- clf$bestInd
 message(paste0("Finished training model. Best score ", the_bestScore,
-            ", best index ",the_bestInd))
+            ", best iteration ",the_bestInd))
 
 # Making predictions
 message("Making predictions")
