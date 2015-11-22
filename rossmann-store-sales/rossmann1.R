@@ -15,6 +15,7 @@ library(readr)
 library(rlogging)
 library(xgboost)
 library(yaml)
+library(zoo)
 
 set.seed(720)
 rm(list=ls())
@@ -48,13 +49,22 @@ test$Year <- as.integer(format(test$Date, "%Y"))
 test <- test[c(1:4,9:11,5:8)]
 test$Date <- NULL
 
-# Dropping columns which I can't handle at the moment
-message(paste("Dropping columns :", "StateHoliday,",
-              "CompetitionOpenSince[Month/Year],", "Promo2Since[Month/Year]"))
-train$StateHoliday <- NULL
-test$StateHoliday <- NULL
+# Convert CompetitionOpenSince[Month/Year] columns into a single column
+# Number of years since competion opened, 'NumYearsSinceCompetitionOpened'
+store$CompetitionOpenSince <- as.yearmon(paste(store$CompetitionOpenSinceYear,
+                                               store$CompetitionOpenSinceMonth,
+                                               sep = "-"))
+oct2015 <- as.yearmon("2015-10")
+store$NumYearsSinceCompetitionOpened <- oct2015 - store$CompetitionOpenSince
+store[,ncol(store)][is.na(store[ncol(store)])] <- -1
 store$CompetitionOpenSinceMonth <- NULL
 store$CompetitionOpenSinceYear <- NULL
+store$CompetitionOpenSince <- NULL
+
+# Dropping columns which I can't handle at the moment
+message(paste("Dropping columns :", "StateHoliday,", "Promo2Since[Month/Year]"))
+train$StateHoliday <- NULL
+test$StateHoliday <- NULL
 store$Promo2SinceWeek <- NULL
 store$Promo2SinceYear <- NULL
 
@@ -89,7 +99,7 @@ gc()
 
 # Making train and validation matrices
 message("Making train and validation matrices")
-feature.names <- names(train)[c(1,3:6,9:16)] #NOTE : No Sales or Customers columns
+feature.names <- names(train)[c(1,3:6,9:17)] #NOTE : No Sales or Customers columns
 dtrain <- xgb.DMatrix(data.matrix(train60p[,feature.names]),
                       label=log(train60p$Sales+1))
 dval <- xgb.DMatrix(data.matrix(val[,feature.names]), label=log(val$Sales+1))
