@@ -92,12 +92,12 @@ def run_randomized_search_cv():
     Y = train[l[-1]]
     
     # The classifier being used
-    clf = RandomForestClassifier(n_estimators=50)
+    clf = RandomForestClassifier(n_estimators=150)
     
     # Specify parameters and distributions to sample from
-    param_dist = {"max_depth": list(np.arange(50, 130, 5)),
+    param_dist = {"max_depth": list(np.arange(81, 130, 3)),
                   #"max_features": sp_randint(1, 5356),
-                  "min_samples_split": list(np.arange(60, 160, 10)),
+                  "min_samples_split": list(np.arange(60, 160, 5)),
                   "min_samples_leaf": list(np.arange(3, 8)),
                   "bootstrap": [True, False],
                   "criterion": ["gini", "entropy"]}
@@ -106,7 +106,7 @@ def run_randomized_search_cv():
     n_iter_search = 20
     random_search = RandomizedSearchCV(clf, param_distributions=param_dist,
                                        n_iter=n_iter_search, n_jobs=8, cv=10,
-                                       verbose=5, random_state=720)
+                                       verbose=1, random_state=720)
     
     logging.info("Starting the RandomizedSearchCV")
     start = time.time()
@@ -141,13 +141,27 @@ def train_model_02():
     X = train[l[:-1]]
     Y = train[l[-1]]
     gs_params = { 
-        "kernel" : ["linear", "rbf"], "C" : [1, 10]
+        "kernel" : ["linear"], "C" : [1, 5, 10]
+        # rbf TOO SLOW
     }
     svc = svm.SVC(decision_function_shape='ovo', random_state=720, 
-                  probability = True)
-    clf = grid_search.GridSearchCV(svc, gs_params, n_jobs=2, verbose=2)
+                  probability=True)
+    clf = grid_search.GridSearchCV(svc, gs_params, n_jobs=1, verbose=6)
     train_and_make_predictions(clf, X, Y, test, "02 - SVC (apply 'ovo')")
 
 
+def train_model_03():
+    train, test = read_dataset(1)
+    test = test.drop(test.columns[0], axis=1)
+    l = list(train.columns.values)
+    X = train[l[:-1]]
+    Y = train[l[-1]]
+    clf = RandomForestClassifier(n_estimators=150, min_samples_split=145, 
+                                 bootstrap=False, criterion="gini", 
+                                 max_depth=102, min_samples_leaf=4, n_jobs=-1)
+    train_and_make_predictions(clf, X, Y, test, "RF150")
+
+
 if __name__ == '__main__':
-    train_model_02()
+    train_model_03()
+    #run_randomized_search_cv()
