@@ -3,12 +3,15 @@
 Script for training various models.
 """
 
+from operator import itemgetter
 from sklearn import grid_search, svm
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.grid_search import RandomizedSearchCV
 import csv
 import gzip
 import logging
-#import numpy as np
+import numpy as np
 import pandas as pd
 import shutil
 import time
@@ -64,6 +67,53 @@ def read_dataset(idx):
     test = pd.read_csv('data/test-dataset-%d.txt.gz' % idx, sep='\t', 
                        index_col=False)
     return train, test
+
+
+# Utility function to report best scores
+# Credit : http://scikit-learn.org/stable/auto_examples/model_selection/randomized_search.html
+def report(grid_scores, n_top=5):
+    top_scores = sorted(grid_scores, key=itemgetter(1), reverse=True)[:n_top]
+    for i, score in enumerate(top_scores):
+        logging.info("Model with rank: {0}".format(i + 1))
+        logging.info("Mean validation score: {0:.3f} (std: {1:.3f})".format(
+                     score.mean_validation_score,
+                     np.std(score.cv_validation_scores)))
+        logging.info("Parameters: {0}".format(score.parameters))
+        logging.info("")
+
+
+def run_randomized_search_cv():
+    train, test = read_dataset(1)
+    test = test.drop(test.columns[0], axis=1)
+    l = list(train.columns.values)
+    
+    logging.info("Preparing X & Y")
+    X = train[l[:-1]]
+    Y = train[l[-1]]
+    
+    # The classifier being used
+    clf = RandomForestClassifier(n_estimators=50)
+    
+    # Specify parameters and distributions to sample from
+    param_dist = {"max_depth": list(np.arange(50, 130, 5)),
+                  #"max_features": sp_randint(1, 5356),
+                  "min_samples_split": list(np.arange(60, 160, 10)),
+                  "min_samples_leaf": list(np.arange(3, 8)),
+                  "bootstrap": [True, False],
+                  "criterion": ["gini", "entropy"]}
+    
+    # Run randomized search
+    n_iter_search = 20
+    random_search = RandomizedSearchCV(clf, param_distributions=param_dist,
+                                       n_iter=n_iter_search, n_jobs=8, cv=10,
+                                       verbose=5, random_state=720)
+    
+    logging.info("Starting the RandomizedSearchCV")
+    start = time.time()
+    random_search.fit(X, Y)
+    logging.info("RandomizedSearchCV took %.2f seconds for %d candidates"
+          " parameter settings." % ((time.time() - start), n_iter_search))
+    report(random_search.grid_scores_)
 
 
 def train_and_make_predictions(clf, X, Y, test, model_desc):
