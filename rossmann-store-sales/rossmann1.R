@@ -2,8 +2,6 @@
 # Rossmann Model 1
 # - only using stores that were open (in train.csv.zip)
 # - not using columns :
-#     CompetitionOpenSince[Month/Year]
-#     Promo2Since[Year/Week]
 #     StateHoliday
 #
 # References:
@@ -61,12 +59,24 @@ store$CompetitionOpenSinceMonth <- NULL
 store$CompetitionOpenSinceYear <- NULL
 store$CompetitionOpenSince <- NULL
 
-# Dropping columns which I can't handle at the moment
-message(paste("Dropping columns :", "StateHoliday,", "Promo2Since[Month/Year]"))
-train$StateHoliday <- NULL
-test$StateHoliday <- NULL
+# Convert Promo2Since[Month/Year] columns into a single column
+# Number of days since competion opened, 'NumDaysSincePromo2'
+message("Converting Promo2Since[Month/Year] into DaysSincePromo2")
+store$Promo2Since <- as.POSIXct(paste(store$Promo2SinceYear,
+                                      store$Promo2SinceWeek, 1, sep = "-"),
+                                      format = "%Y-%U-%u")
+store$DaysSincePromo2 <- as.numeric(as.POSIXct("2015-10-01",
+                                               format = "%Y-%m-%d") -
+                                      store$Promo2Since)
+store[,ncol(store)][is.na(store[ncol(store)])] <- -1
 store$Promo2SinceWeek <- NULL
 store$Promo2SinceYear <- NULL
+store$Promo2Since <- NULL
+
+# Dropping columns which I can't handle at the moment
+message(paste("Dropping columns :", "StateHoliday"))
+train$StateHoliday <- NULL
+test$StateHoliday <- NULL
 
 # Preprocessing the store dataset. This involves :
 # - assuming average distance when CompetitionDistance is NA
@@ -99,7 +109,7 @@ gc()
 
 # Making train and validation matrices
 message("Making train and validation matrices")
-feature.names <- names(train)[c(1,3:6,9:17)] #NOTE : No Sales or Customers columns
+feature.names <- names(train)[c(1,3:6,9:18)] #NOTE : No Sales or Customers columns
 dtrain <- xgb.DMatrix(data.matrix(train60p[,feature.names]),
                       label=log(train60p$Sales+1))
 dval <- xgb.DMatrix(data.matrix(val[,feature.names]), label=log(val$Sales+1))
