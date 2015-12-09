@@ -1,8 +1,6 @@
 ##################################################################
 # Rossmann Model 1
 # - only using stores that were open (in train.csv.zip)
-# - not using columns :
-#     StateHoliday
 #
 # References:
 # https://www.kaggle.com/abhilashawasthi/rossmann-store-sales/xgb-rossmann/run/86608/code
@@ -47,6 +45,19 @@ test$Year <- as.integer(format(test$Date, "%Y"))
 test <- test[c(1:4,9:11,5:8)]
 test$Date <- NULL
 
+# Convert the StateHoliday column into a Is_StateHoliday column
+message("Converting StateHoliday into Is_StateHoliday")
+state_holidays <- c("a", "b", "c")
+train <- within(train, {
+  Is_StateHoliday = ifelse(StateHoliday %in% state_holidays, 1, 0)
+})
+test <- within(test, {
+  Is_StateHoliday = ifelse(StateHoliday %in% state_holidays, 1, 0)
+})
+train$StateHoliday <- NULL
+test$StateHoliday <- NULL
+rm(state_holidays)
+
 # Convert CompetitionOpenSince[Month/Year] columns into a single column
 # Number of years since competion opened, 'NumYearsSinceCompetitionOpened'
 store$CompetitionOpenSince <- as.yearmon(paste(store$CompetitionOpenSinceYear,
@@ -73,11 +84,6 @@ store$Promo2SinceWeek <- NULL
 store$Promo2SinceYear <- NULL
 store$Promo2Since <- NULL
 
-# Dropping columns which I can't handle at the moment
-message(paste("Dropping columns :", "StateHoliday"))
-train$StateHoliday <- NULL
-test$StateHoliday <- NULL
-
 # Preprocessing the store dataset. This involves :
 # - assuming average distance when CompetitionDistance is NA
 message("Assuming average CompetitionDistance when NA")
@@ -88,6 +94,10 @@ store[is.na(store$CompetitionDistance), "CompetitionDistance"] =
 message("Merge with store dataset")
 train <- merge(train,store)
 test <- merge(test,store)
+
+# Move the Is_StateHoliday column to the end
+train <- train[c(1:11,13:19,12)]
+test <- test[c(1:9,11:17,10)]
 
 # Only use data where the stores were open and remove row where sales is 0
 message("Only use data where the stores were open")
@@ -109,7 +119,7 @@ gc()
 
 # Making train and validation matrices
 message("Making train and validation matrices")
-feature.names <- names(train)[c(1,3:6,9:17)]
+feature.names <- names(train)[c(1,3:6,9:17,19)]
 # NOTE :
 # - feature.names has no Sales or Customers columns,
 # - DaysSincePromo2 (column 18) not included in feature.names
