@@ -8,7 +8,12 @@ from sklearn import grid_search, svm
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.grid_search import RandomizedSearchCV
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 import csv
+import gc
 import gzip
 import logging
 import numpy as np
@@ -60,11 +65,21 @@ def make_submission_file(predicted_probabilties, test, create_gz = True):
 #==============================================================================
 
 
-def read_dataset(idx):
-    logging.info("Reading dataset %d" % idx)
-    train = pd.read_csv('data/train-dataset-%d.txt.gz' % idx, sep='\t', 
+def prepare_data_for_training(dataset_id):
+    train, test = read_dataset(dataset_id)
+    if dataset_id==1:
+        test = test.drop(test.columns[0], axis=1)
+    l = list(train.columns.values)
+    X = train[l[:-1]]
+    Y = train[l[-1]]
+    return X, Y, test
+
+
+def read_dataset(dataset_id):
+    logging.info("Reading dataset %d" % dataset_id)
+    train = pd.read_csv('data/train-dataset-%d.txt.gz' % dataset_id, sep='\t', 
                         index_col=False)
-    test = pd.read_csv('data/test-dataset-%d.txt.gz' % idx, sep='\t', 
+    test = pd.read_csv('data/test-dataset-%d.txt.gz' % dataset_id, sep='\t', 
                        index_col=False)
     return train, test
 
@@ -82,8 +97,9 @@ def report(grid_scores, n_top=5):
         logging.info("")
 
 
-def run_randomized_search_cv():
-    train, test = read_dataset(1)
+def run_randomized_search_cv(dataset_id, candidate_classifier="RandomForest", 
+                             cv_nfold=10, num_parallel_jobs=-1):
+    train, test = read_dataset(dataset_id)
     test = test.drop(test.columns[0], axis=1)
     l = list(train.columns.values)
     
@@ -92,23 +108,54 @@ def run_randomized_search_cv():
     Y = train[l[-1]]
     
     # The classifier being used
-    clf = RandomForestClassifier(n_estimators=150)
-    
-    # Specify parameters and distributions to sample from
-    param_dist = {"max_depth": list(np.arange(81, 130, 3)),
-                  #"max_features": sp_randint(1, 5356),
-                  "min_samples_split": list(np.arange(60, 160, 5)),
-                  "min_samples_leaf": list(np.arange(3, 8)),
-                  "bootstrap": [True, False],
-                  "criterion": ["gini", "entropy"]}
+    (clf, param_dist) = None, {}
+    if candidate_classifier == "decisiontree":
+        clf = DecisionTreeClassifier()
+        param_dist = {"max_depth": list(np.arange(108, 243, 3)),
+                      "min_samples_split": list(np.arange(140, 305, 5)),
+                      "min_samples_leaf": list(np.arange(3, 12)),
+                      "criterion": ["gini", "entropy"]
+                     }
+    elif candidate_classifier == "RandomForest":
+        clf = RandomForestClassifier(n_estimators=600)
+        param_dist = {"max_depth": list(np.arange(108, 153, 3)),
+                      #"max_features": sp_randint(1, 5356),
+                      "min_samples_split": list(np.arange(140, 185, 5)),
+                      "min_samples_leaf": list(np.arange(3, 9)),
+                      "bootstrap": [True, False],
+                      "criterion": ["gini", "entropy"]
+                     }
+    elif candidate_classifier == "KNN":
+        clf = KNeighborsClassifier()
+        param_dist = {"metric": ["minkowski", "euclidean", "manhattan"],
+                      "weights": ["uniform", "distance"],
+                      "leaf_size": np.arange(5,105,5),
+                      "n_neighbors": np.arange(5,105,5)
+                     }
+    # NOTE : Unable to complete random search for KNN
+    # getting "WindowsError: [Error 5] Access is denied"
+    elif candidate_classifier == "NB":
+        clf = MultinomialNB()
+        param_dist = {"alpha": np.arange(0,1.55,0.05)
+                     }
+    elif candidate_classifier == "SVM":
+        clf = SVC(probability=True)
+        param_dist = {"C": np.arange(1,10), 
+                      "kernel": ["linear"], 
+                      "tol": [0.001, 0.01, 0.015, 0.1]
+                     }
     
     # Run randomized search
+    gc.collect()
     n_iter_search = 20
     random_search = RandomizedSearchCV(clf, param_distributions=param_dist,
-                                       n_iter=n_iter_search, n_jobs=8, cv=10,
-                                       verbose=1, random_state=720)
+                                       n_iter=n_iter_search, 
+                                       n_jobs=num_parallel_jobs, 
+                                       cv=cv_nfold, verbose=3, 
+                                       random_state=720)
     
     logging.info("Starting the RandomizedSearchCV")
+    logging.info(random_search)
     start = time.time()
     random_search.fit(X, Y)
     logging.info("RandomizedSearchCV took %.2f seconds for %d candidates"
@@ -118,28 +165,24 @@ def run_randomized_search_cv():
 
 def train_and_make_predictions(clf, X, Y, test, model_desc):
     logging.info("Training model %s" % model_desc)
-    clf.fit(X, Y)
+    model = clf.fit(X, Y)
+    try:
+        logging.info(model)
+    except:
+        print "exception printing model"
     logging.info("Making predictions")
     predicted_probabilties = clf.predict_proba(test)
     make_submission_file(predicted_probabilties, test, True)
 
 
 def train_model_01():
-    train, test = read_dataset(1)
-    test = test.drop(test.columns[0], axis=1)
-    l = list(train.columns.values)
-    X = train[l[:-1]]
-    Y = train[l[-1]]
+    X, Y, test = prepare_data_for_training(1)
     clf = CalibratedClassifierCV(svm.LinearSVC())
     train_and_make_predictions(clf, X, Y, test, "01 (LinearSVC)")
 
 
 def train_model_02():
-    train, test = read_dataset(1)
-    test = test.drop(test.columns[0], axis=1)
-    l = list(train.columns.values)
-    X = train[l[:-1]]
-    Y = train[l[-1]]
+    X, Y, test = prepare_data_for_training(1)
     gs_params = { 
         "kernel" : ["linear"], "C" : [1, 5, 10]
         # rbf TOO SLOW
@@ -150,18 +193,31 @@ def train_model_02():
     train_and_make_predictions(clf, X, Y, test, "02 - SVC (apply 'ovo')")
 
 
-def train_model_03():
-    train, test = read_dataset(1)
-    test = test.drop(test.columns[0], axis=1)
-    l = list(train.columns.values)
-    X = train[l[:-1]]
-    Y = train[l[-1]]
-    clf = RandomForestClassifier(n_estimators=150, min_samples_split=145, 
+def train_model_03(dataset_id):
+    # Random Forest
+    X, Y, test = prepare_data_for_training(dataset_id)
+    clf = RandomForestClassifier(n_estimators=300, min_samples_split=150, 
                                  bootstrap=False, criterion="gini", 
-                                 max_depth=102, min_samples_leaf=4, n_jobs=-1)
+                                 max_depth=117, min_samples_leaf=3, n_jobs=-1)
+    train_and_make_predictions(clf, X, Y, test, 
+                               "RandomForest %s" % clf.get_params())
+
+
+def train_model_04():
+    X, Y, test = prepare_data_for_training(1)
+    clf = RandomForestClassifier(n_estimators=150, min_samples_split=160, 
+                                 bootstrap=False, criterion="gini", 
+                                 max_depth=87, min_samples_leaf=3, n_jobs=-1)
     train_and_make_predictions(clf, X, Y, test, "RF150")
 
 
 if __name__ == '__main__':
-    train_model_03()
-    #run_randomized_search_cv()
+    run_randomized_search_cv(2, "decisiontree", cv_nfold=10, 
+                             num_parallel_jobs=7)
+    # NOTE: Some classifiers give WindowsError when num_parallel_jobs > 1
+    # Classifiers which are OK to set num_parallel_jobs > 1 (Windows version): 
+    # - RandomForest
+    # - SVM (sklearn.svm.SVC)
+    
+    #train_model_03(2)
+    #run_randomized_search_cv_2(2)
