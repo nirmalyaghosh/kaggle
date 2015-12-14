@@ -119,10 +119,9 @@ gc()
 
 # Making train and validation matrices
 message("Making train and validation matrices")
-feature.names <- names(train)[c(1,3:6,9:17,19)]
+feature.names <- names(train)[c(1,3:6,9:17,18,19)]
 # NOTE :
 # - feature.names has no Sales or Customers columns,
-# - DaysSincePromo2 (column 18) not included in feature.names
 dtrain <- xgb.DMatrix(data.matrix(train60p[,feature.names]),
                       label=log(train60p$Sales+1))
 dval <- xgb.DMatrix(data.matrix(val[,feature.names]), label=log(val$Sales+1))
