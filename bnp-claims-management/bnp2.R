@@ -4,7 +4,7 @@
 # First, do very minimal preprocessing
 # Next, a bit of parameter tuning
 # Next, train + predict, N times - retaining the predictions
-# Finally, average out the predictions for the final submission
+# Finally, take average of only the best 3 and worst 3 predictions
 ##################################################################
 
 library(readr)
@@ -127,9 +127,21 @@ for (i in 1:config$num_iterations) {
 }
 
 ##################################################################
-# Get the average of all predictions
-message(paste("Getting average of",config$num_iterations,"iterations."))
-final_df$PredictedProb <- rowMeans(subset(final_df, select = cols),
+# Get the average of best N and worst N predictions
+message(paste("Getting the average of the best 3 and worst 3, of",
+              config$num_iterations,"iterations.",
+              "Best scores :", paste(bestScores, collapse = ",")))
+x <- bestScores
+best_N_scores <- c(minN(x,1),minN(x,2),minN(x,3))
+worst_N_scores <- c(maxN(x,1),maxN(x,2),maxN(x,3))
+message(paste(" Best 3 scores :", paste(best_N_scores, collapse = ",")))
+message(paste("Worst 3 scores :", paste(worst_N_scores, collapse = ",")))
+best_N_score_cols <- which(x %in% best_N_scores)
+worst_N_score_cols <- which(x %in% worst_N_scores)
+cols2 <- c(unlist(lapply(best_N_score_cols, function(l) {paste0(prfx,l)})),
+           unlist(lapply(worst_N_score_cols, function(l) {paste0(prfx,l)})))
+#message(paste("columns of interest", paste(cols2, collapse = ",")))
+final_df$PredictedProb <- rowMeans(subset(final_df, select = cols2),
                                    na.rm = TRUE)
 final_df <- final_df[,!(names(final_df) %in% cols)]
 
