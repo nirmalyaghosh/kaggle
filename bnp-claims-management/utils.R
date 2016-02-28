@@ -6,9 +6,9 @@ avg_of_N_best_worst_scores <- function(bestScores, final_df, N=3) {
   if (N!=3) {
     N = 3 # TODO handle this limitation
   }
-  message(paste("Getting the average of the best", N, "and worst", N, "of",
-                config$num_iterations, "iterations.",
-                "Best scores :", paste(bestScores, collapse = ",")))
+  message(paste("Getting the average of the best", N, "and worst", N, "from",
+                length(bestScores), "over",
+                config$num_iterations, "iterations."))
   x <- bestScores
   best_N_scores <- c(minN(x,1),minN(x,2),minN(x,3))
   worst_N_scores <- c(maxN(x,1),maxN(x,2),maxN(x,3))
@@ -21,7 +21,8 @@ avg_of_N_best_worst_scores <- function(bestScores, final_df, N=3) {
   #message(paste("columns of interest", paste(cols2, collapse = ",")))
   final_df$PredictedProb <- rowMeans(subset(final_df, select = cols2),
                                      na.rm = TRUE)
-  final_df
+  list("final_df"=final_df, "best_N_scores"=best_N_scores,
+       "best_N_score_cols"=best_N_score_cols)
 }
 
 
@@ -61,4 +62,14 @@ minN <- function(x, N=2) {
     N <- length(x)
   }
   sort(x)[N]
+}
+
+
+print_xgb_params <- function(xgb_params) {
+  # Returns a comma-separated string representing the specified xgb_params list
+  paste0("max_depth=", xgb_params$max_depth,
+        ", eta=", xgb_params$eta,
+        ", subsample=", xgb_params$subsample,
+        ", min_child_weight=", xgb_params$min_child_weight,
+        ", colsample_bytree=", xgb_params$colsample_bytree)
 }
