@@ -37,7 +37,6 @@ test$ID  <- NULL
 
 train$is_train <- rep(TRUE,nrow(train))
 test$is_train  <- rep(FALSE,nrow(test))
-
 df_all <- rbind(train, test)
 
 # Convert character variables to integer
@@ -64,11 +63,9 @@ train_eval   <- train[,feature_names]
 
 train_predict <- function(xgb_params, seed_to_use, col_name) {
   set.seed(seed_to_use)
-
   h <- sample(nrow(train), config$validation_set_size)
   dval   <- xgb.DMatrix(data = data.matrix(train_eval[h,]), label = y[h])
   dtrain <- xgb.DMatrix(data = data.matrix(train_eval[-h,]), label=y[-h])
-
   xgb_watchlist <- list(val=dval, train=dtrain)
 
   xgb_model <- xgb.train(
@@ -79,13 +76,13 @@ train_predict <- function(xgb_params, seed_to_use, col_name) {
     watchlist           = xgb_watchlist,
     print.every.n       = config$print_every_n,
     early.stop.round    = config$early_stop_round,
+    nthread             = config$nthread,
     maximize            = FALSE
   )
 
   if (config$verbosity > 0) {
     message(paste0("BestScore ", round(xgb_model$bestScore, digits = 5),
                    ", BestInd ", xgb_model$bestInd,
-                   ", Seed ", seed_to_use,
                    ", Params : ", print_xgb_params(xgb_params)))
   }
 
@@ -138,6 +135,7 @@ if (config$do_param_tuning == TRUE) {
              length(sss)
   message(paste("XGB parameter tuning enabled. Starting", num_runs,"runs"))
   # Start the parameter tuning work
+  seed_to_use = config$seed + (ctr*693)
   for (m in md) {
     for (s in sss) {
       for (mcw in mcws) {
@@ -151,7 +149,7 @@ if (config$do_param_tuning == TRUE) {
             xgb_params_list[[ctr]] <- xgb_params
             col_name <- paste0(prfx, ctr)
             cols <- c(cols, col_name)
-            seed_to_use = config$seed + (ctr*693)
+            xgb_params$seed_to_use = seed_to_use
             r <- helper(xgb_params, seed_to_use, col_name, final_df, bestScores)
             final_df <- r$target_df
             bestScores <- r$bestScores
@@ -167,7 +165,8 @@ if (config$do_param_tuning == TRUE) {
     col_name <- paste0(prfx, ctr)
     xgb_params_list[[ctr]] <- xgb_params
     cols <- c(cols, col_name)
-    seed_to_use = config$seed + (ctr*693)
+    seed_to_use = config$seed + (ctr*config$seed_increment)
+    xgb_params$seed_to_use = seed_to_use
     r <- helper(xgb_params, seed_to_use, col_name, final_df, bestScores)
     final_df <- r$target_df
     bestScores <- r$bestScores
@@ -190,7 +189,10 @@ for (i in seq(1,length(r$best_N_scores))) {
 # Writing the submissions file
 current_ts = format(Sys.time(), "%a_%d%b%Y_%H%M")
 filename = paste0("submissions/XGB_",current_ts,".csv.gz")
-write.csv(final_df, gzfile(filename), quote=FALSE, row.names=FALSE)
+submissions_df <- final_df
+submissions_df <-
+  submissions_df[names(submissions_df) %in% c("ID", "PredictedProb")]
+write.csv(submissions_df, gzfile(filename), quote = FALSE, row.names = FALSE)
 message(paste("Finished running script for BNP Approach 2. See",filename))
 
 # Comparing

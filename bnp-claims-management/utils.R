@@ -71,5 +71,6 @@ print_xgb_params <- function(xgb_params) {
         ", eta=", xgb_params$eta,
         ", subsample=", xgb_params$subsample,
         ", min_child_weight=", xgb_params$min_child_weight,
-        ", colsample_bytree=", xgb_params$colsample_bytree)
+        ", colsample_bytree=", xgb_params$colsample_bytree,
+        ", seed=", xgb_params$seed_to_use)
 }
