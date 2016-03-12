@@ -2,11 +2,14 @@
 # Approach 2 : use xgboost
 #
 # First, do very minimal preprocessing
+#        - remove Near Zero-Variance Predictors
+#        - remove highly correlated variables
 # Next, a bit of parameter tuning
 # Next, train + predict, N times - retaining the predictions
 # Finally, take average of only the best 3 and worst 3 predictions
 ##################################################################
 
+library(caret)
 library(readr)
 library(rlogging)
 library(xgboost)
@@ -55,6 +58,28 @@ drops = c("is_train")
 train <- df_all[df_all$is_train == TRUE,!names(df_all) %in% drops]
 test <- df_all[df_all$is_train == FALSE,!names(df_all) %in% drops]
 feature_names <- feature_names[feature_names != "is_train"]
+
+##################################################################
+# Find and remove Near Zero-Variance Predictors
+nzv <- data.frame(nearZeroVar(df_all, saveMetrics= TRUE))
+drops <- row.names(nzv[nzv$nzv == TRUE, ]) # v3, v38, v74
+train <- train[!names(train) %in% drops]
+test <- test[!names(test) %in% drops]
+message(paste("Dropped NZV variables :", paste(drops, collapse = ",")))
+feature_names <- feature_names[!feature_names %in% drops]
+
+# Find and remove highly correlated variables
+high_corr_cutoff <- config$high_corr_cutoff
+highlyCorrVars1 <- findCorrelation(cor(train), cutoff = high_corr_cutoff)
+highlyCorrVars2 <- findCorrelation(cor(test), cutoff = high_corr_cutoff)
+drops <- intersect(highlyCorrVars1, highlyCorrVars2)
+drops <- names(train)[drops]
+train <- train[!names(train) %in% drops]
+test <- test[!names(test) %in% drops]
+message(paste("Dropped highly correlated variables (cutoff",
+              high_corr_cutoff, ") :", paste(drops, collapse = ",")))
+feature_names <- feature_names[!feature_names %in% drops]
+
 
 ##################################################################
 # Train the model
@@ -135,7 +160,7 @@ if (config$do_param_tuning == TRUE) {
              length(sss)
   message(paste("XGB parameter tuning enabled. Starting", num_runs,"runs"))
   # Start the parameter tuning work
-  seed_to_use = config$seed + (ctr*693)
+  seed_to_use = config$seed + (ctr*config$seed_increment)
   for (m in md) {
     for (s in sss) {
       for (mcw in mcws) {
