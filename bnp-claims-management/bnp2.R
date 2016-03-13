@@ -76,7 +76,7 @@ drops <- intersect(highlyCorrVars1, highlyCorrVars2)
 drops <- names(train)[drops]
 train <- train[!names(train) %in% drops]
 test <- test[!names(test) %in% drops]
-message(paste("Dropped highly correlated variables (cutoff",
+message(paste("Dropped", length(drops), "highly correlated variables (cutoff",
               high_corr_cutoff, ") :", paste(drops, collapse = ",")))
 feature_names <- feature_names[!feature_names %in% drops]
 
@@ -86,7 +86,41 @@ feature_names <- feature_names[!feature_names %in% drops]
 train_target <- y
 train_eval   <- train[,feature_names]
 
-train_predict <- function(xgb_params, seed_to_use, col_name) {
+train_cv <- function(xgb_params, seed_to_use) {
+  set.seed(seed_to_use)
+  h <- sample(nrow(train), config$validation_set_size)
+  dval   <- xgb.DMatrix(data = data.matrix(train_eval[h,]), label = y[h])
+  dtrain <- xgb.DMatrix(data = data.matrix(train_eval[-h,]), label=y[-h])
+  xgb_watchlist <- list(val=dval, train=dtrain)
+  message(paste("Training xgboost with", config$num_folds ,
+                "fold cross-validation. Seed :", seed_to_use,
+                "Validatation set size :", config$validation_set_size))
+
+  bst_cv = xgb.cv(
+    params              = xgb_params,
+    data                = dtrain,
+    nfold               = config$num_folds,
+    nrounds             = 1000000,
+    verbose             = config$verbosity,
+    print.every.n       = config$print_every_n,
+    early.stop.round    = config$early_stop_round,
+    nthread             = config$nthread,
+    maximize            = FALSE
+  )
+
+  gc()
+  best <- min(bst_cv$test.logloss.mean)
+  bestIter <- which(bst_cv$test.logloss.mean==best)
+
+  cat("\n",best, bestIter,"\n")
+  print(bst_cv[bestIter])
+  message(paste("Best test.logloss.mean :", best, "best iteration", bestIter[1]))
+
+  bestIter-1
+}
+
+
+train_predict <- function(xgb_params, seed_to_use, col_name, num_rounds) {
   set.seed(seed_to_use)
   h <- sample(nrow(train), config$validation_set_size)
   dval   <- xgb.DMatrix(data = data.matrix(train_eval[h,]), label = y[h])
@@ -96,7 +130,7 @@ train_predict <- function(xgb_params, seed_to_use, col_name) {
   xgb_model <- xgb.train(
     params              = xgb_params,
     data                = dtrain,
-    nrounds             = 1000000,
+    nrounds             = num_rounds,
     verbose             = config$verbosity,
     watchlist           = xgb_watchlist,
     print.every.n       = config$print_every_n,
@@ -117,6 +151,16 @@ train_predict <- function(xgb_params, seed_to_use, col_name) {
   list("xgb_model" = xgb_model, "output_df" = output_df)
 }
 
+helper <- function(xgb_params, seed_to_use, col_name, target_df, bestScores) {
+    # Train and predict for a given set of parameters
+    l <- train_predict(xgb_params, seed_to_use, col_name, 1000000)
+    output_df <- l$output_df
+    bestScores <- c(bestScores, l$xgb_model$bestScore)
+    if (is.null(target_df)) { target_df <- output_df }
+    else { target_df <- merge(target_df, output_df) }
+    list("target_df"=target_df, "bestScores"=bestScores)
+}
+
 # Prepare the parameters required for training the model(s)
 xgb_params_base <- list(
   objective           = "binary:logistic",
@@ -129,87 +173,35 @@ xgb_params_base <- list(
   min_child_weight    = config$min_child_weight
 )
 
+# Training xgboost with cross-validation
+xgb_params <- xgb_params_base
+cv <- train_cv(xgb_params, config$seed)
+
 # Run for N iterations
 final_df <- NULL
 cols <- c()
 bestScores <- c()
 prfx <- "PredictedProb"
-
-helper <- function(xgb_params, seed_to_use, col_name, target_df, bestScores) {
-    # Train and predict for a given set of parameters
-    l <- train_predict(xgb_params, seed_to_use, col_name)
-    output_df <- l$output_df
-    bestScores <- c(bestScores, l$xgb_model$bestScore)
-    if (is.null(target_df)) { target_df <- output_df }
-    else { target_df <- merge(target_df, output_df) }
-    list("target_df"=target_df, "bestScores"=bestScores)
-}
-
 ctr = 1
-xgb_params <- xgb_params_base
 xgb_params_list <- list()
-if (config$do_param_tuning == TRUE) {
-  # XGB parameter tuning enabled
-  # Get the candidate params
-  csbt <- as.numeric(unlist(as.list(strsplit(config$p_colsample_bytree, ","))))
-  etas <- as.numeric(unlist(as.list(strsplit(config$p_eta, ","))))
-  mcws <- as.numeric(unlist(as.list(strsplit(config$p_min_child_weights, ","))))
-  md <- as.numeric(unlist(as.list(strsplit(config$p_max_depths, ","))))
-  sss <- as.numeric(unlist(as.list(strsplit(config$p_sub_samples, ","))))
-  num_runs = length(csbt) * length(etas) * length(mcws)  * length(md) *
-             length(sss)
-  message(paste("XGB parameter tuning enabled. Starting", num_runs,"runs"))
-  # Start the parameter tuning work
+message(paste("Run for", config$num_iterations, "iterations"))
+for (i in 1:config$num_iterations) {
+  col_name <- paste0(prfx, ctr)
+  xgb_params_list[[ctr]] <- xgb_params
+  cols <- c(cols, col_name)
   seed_to_use = config$seed + (ctr*config$seed_increment)
-  for (m in md) {
-    for (s in sss) {
-      for (mcw in mcws) {
-        for (c in csbt) {
-          for (e in etas) {
-            xgb_params$colsample_bytree = c
-            xgb_params$eta = e
-            xgb_params$max_depth = as.integer(m)
-            xgb_params$min_child_weight = mcw
-            xgb_params$subsample = s
-            xgb_params_list[[ctr]] <- xgb_params
-            col_name <- paste0(prfx, ctr)
-            cols <- c(cols, col_name)
-            xgb_params$seed_to_use = seed_to_use
-            r <- helper(xgb_params, seed_to_use, col_name, final_df, bestScores)
-            final_df <- r$target_df
-            bestScores <- r$bestScores
-            cat(paste("Done",ctr,"of",num_runs,"\n"))
-            ctr <- ctr + 1
-          }
-        }
-      }
-    }
-  }
-} else {
-  for (i in 1:config$num_iterations) {
-    col_name <- paste0(prfx, ctr)
-    xgb_params_list[[ctr]] <- xgb_params
-    cols <- c(cols, col_name)
-    seed_to_use = config$seed + (ctr*config$seed_increment)
-    xgb_params$seed_to_use = seed_to_use
-    r <- helper(xgb_params, seed_to_use, col_name, final_df, bestScores)
-    final_df <- r$target_df
-    bestScores <- r$bestScores
-    ctr <- ctr + 1
-  }
+  xgb_params$seed_to_use = seed_to_use
+  r <- helper(xgb_params, seed_to_use, col_name, final_df, bestScores)
+  final_df <- r$target_df
+  bestScores <- r$bestScores
+  ctr <- ctr + 1
 }
+message(paste("Best scores :", paste(paste(bestScores, collapse = ", "))))
+message(paste("Avg. best score :", mean(bestScores)))
 
-##################################################################
-# Get the average of best N and worst N predictions
-r <- avg_of_N_best_worst_scores(bestScores, final_df)
-final_df <- r$final_df
-# Print the best parameters
-message("Best params :")
-for (i in seq(1,length(r$best_N_scores))) {
-  best_params <- xgb_params_list[[r$best_N_score_cols[i]]]
-  message(paste("\tScore:", round(r$best_N_scores[[i]], digits = 5),
-                "\tParams:", print_xgb_params(best_params)))
-}
+# Get the average of the N predictions
+final_df$PredictedProb <- rowMeans(subset(final_df, select = cols),
+                                   na.rm = TRUE)
 
 # Writing the submissions file
 current_ts = format(Sys.time(), "%a_%d%b%Y_%H%M")
