@@ -67,7 +67,7 @@ def find_best_estimator(base_estimator, X, y, cfg, section,
     param_dist = cfg[section][grid_search_params_key]
     random_state = cfg["common"]["seed"]
     logger.info("Finding the best %s based on %s score" % (name, scoring))
-    if random_search == True:
+    if random_search == cfg[section]["use_random_search"]:
         logger.info("Using random search to find the best %s" % name)
         search = grid_search.RandomizedSearchCV(estimator=base_estimator,
                                                 param_distributions=param_dist,
@@ -121,6 +121,18 @@ def report_grid_search_scores(grid_scores, n_top=5):
                     score.mean_validation_score,
                     np.std(score.cv_validation_scores)))
         logger.info("Parameters: {0}".format(score.parameters))
+
+
+def round_columns(df, cols=None, decimals=5):
+    # Rounds only numeric columns, ignores non-numeric
+    numeric_cols = list(df.select_dtypes(include=[np.number]).columns.values)
+    if cols is None:
+        cols = list(df.columns.values)
+    for col in cols:
+        if col not in numeric_cols:
+            continue
+        df[col] = df[col].round(decimals)
+    return df
 
 
 class BasicImputer(TransformerMixin):
