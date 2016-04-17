@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Approach 2 : Use ExtraTreesClassifier.
+Approach 5 : Use ExtraTreesClassifier.
 Drop columns identified by other scripts.
 Undo the feature scaling (based on a variant of  http://bit.ly/1RV4w0y)
 
@@ -17,16 +17,6 @@ from sklearn.ensemble import ExtraTreesClassifier
 
 import utils
 from bnp_config import cfg, logger
-
-
-def find_denominator(df, col):
-    # Finds the approximate denominator used for scaling
-	# - to undo the feature scaling.
-	# Credit : http://bit.ly/1RV4w0y
-    vals = df[col].dropna().sort_values().round(8)
-    vals = pd.rolling_apply(vals, 2, lambda x: x[1] - x[0])
-    vals = vals[vals > 0.000001]
-    return vals.value_counts().idxmax()
 
 
 if __name__ == '__main__':
@@ -53,7 +43,7 @@ if __name__ == '__main__':
     for col in numeric_cols:
         train.loc[train[col].round(5) == 0, col] = 0
         test.loc[test[col].round(5) == 0, col] = 0
-        denominator = find_denominator(df, col)
+        denominator = utils.find_denominator(df, col)
         train[col] *= 1 / denominator
         test[col] *= 1 / denominator
 

@@ -55,6 +55,16 @@ def count_column_unique_values(df, count_only_categorical=True):
     return zip(cols, lengths)  # List of tuples of column values and counts
 
 
+def find_denominator(df, col):
+    # Finds the approximate denominator used for scaling 
+    # (used to undo feature scaling)
+    # Credit : http://bit.ly/1RV4w0y
+    vals = df[col].dropna().sort_values().round(8)
+    vals = pd.rolling_apply(vals, 2, lambda x: x[1] - x[0])
+    vals = vals[vals > 0.000001]
+    return vals.value_counts().idxmax()
+
+
 def find_best_estimator(base_estimator, X, y, cfg, section,
                         grid_search_params_key,
                         random_search=True, scoring="accuracy", verbosity=3):
