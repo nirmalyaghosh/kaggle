@@ -93,6 +93,7 @@ def find_best_estimator(base_estimator, X, y, cfg, section,
                                           param_grid=param_dist,
                                           n_jobs=n_jobs,
                                           cv=cv_nfold,
+                                          scoring=scoring,
                                           verbose=verbosity)
 
     logger.info(search)
