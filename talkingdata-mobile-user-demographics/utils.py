@@ -22,9 +22,13 @@ from sklearn.externals import joblib
 from td_config import cfg, logger
 
 
-def find_best_estimator(base_estimator, X, y,
-                        section, grid_search_params_key="param_dist",
-                        scoring="accuracy", verbosity=3):
+clf_keys = { "ExtraTreeClassifier" : "et",
+             "KNeighborsClassifier": "knn",
+             "RandomForestClassifier": "rf",
+             "SVC": "svm" }
+
+
+def find_best_estimator(base_estimator, X, y, section, verbosity=3):
     # grid_search_params_key : key under the indicated section of the
     # configuration YML file containing the grid search parameters
     if cfg[section]["find_best"] == False:
@@ -32,13 +36,15 @@ def find_best_estimator(base_estimator, X, y,
 
     cv_nfold = cfg[section]["cv_nfold"]
     name = type(base_estimator).__name__
+    grid_search_params_key = "param_dist_%s" % clf_keys[name]
     n_iter = cfg[section]["n_iters"]
     n_jobs = cfg[section]["n_jobs"]
     param_dist = cfg[section][grid_search_params_key]
     random_state = cfg["common"]["seed"]
-    logger.info("Finding the best %s based on %s score" % (name, scoring))
+    scoring = cfg["common"]["grid_search_scoring"]
     if cfg[section]["use_random_search"] == True:
-        logger.info("Using random search to find the best %s" % name)
+        logger.info("Using random search to find best %s based on %s score" %\
+                    (name, scoring))
         search = grid_search.RandomizedSearchCV(estimator=base_estimator,
                                                 param_distributions=param_dist,
                                                 n_iter=n_iter,
@@ -48,20 +54,25 @@ def find_best_estimator(base_estimator, X, y,
                                                 scoring=scoring,
                                                 verbose=verbosity)
     else:
-        logger.info("Using grid search to find the best %s" % name)
+        logger.info("Using grid search to find best %s based on %s score" %\
+                    (name, scoring))
         search = grid_search.GridSearchCV(estimator=base_estimator,
                                           param_grid=param_dist,
                                           n_jobs=n_jobs,
                                           cv=cv_nfold,
                                           verbose=verbosity)
 
-    logger.info(search)
     start = time.time()
     search.fit(X, y)
     logger.info("Took %.2f seconds to find the best %s." %
                 ((time.time() - start), name))
     report_grid_search_scores(search.grid_scores_, n_top=3)
+    logger.info(search.best_estimator_)
     return search.best_estimator_
+
+
+def get_key(clf_name):
+    return clf_keys[clf_name] if clf_name in clf_keys else None
 
 
 def make_submission_file(model, predicted_vals, name_prefix):
@@ -117,7 +128,7 @@ def prepare_events_per_hour_per_device_dataset(data_dir):
     logger.info("Preparing events per hour per device dataset")
     events = read_gz(data_dir, "events.csv.gz")
     events.timestamp = pd.to_datetime(events.timestamp)
-    events["time_hour"] = events.timestamp.apply(lambda x: x.hour)\
+    events["time_hour"] = events.timestamp.apply(lambda x: x.hour)
 
     # Count number of events per hour for each device (ephpd)
     ephpd = pd.crosstab(events["device_id"], events["time_hour"])
@@ -147,8 +158,6 @@ def report_grid_search_scores(grid_scores, n_top=5):
     top_scores = sorted(grid_scores, key=operator.itemgetter(1),
                         reverse=True)[:n_top]
     for i, score in enumerate(top_scores):
-        logger.info("Model with rank: {0}".format(i + 1))
-        logger.info("Mean validation score: {0:.3f} (std: {1:.3f})".format(
-                    score.mean_validation_score,
-                    np.std(score.cv_validation_scores)))
-        logger.info("Parameters: {0}".format(score.parameters))
+        rank, mvs = (i + 1), score.mean_validation_score
+        logger.info("Model rank {0}, mean validation score {1:.3f}, "\
+                    "parameters : {2}".format(rank, mvs, score.parameters))
