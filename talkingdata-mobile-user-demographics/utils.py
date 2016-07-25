@@ -24,6 +24,7 @@ from td_config import cfg, logger
 
 clf_keys = { "ExtraTreeClassifier" : "et",
              "KNeighborsClassifier": "knn",
+             "LogisticRegression": "lr",
              "RandomForestClassifier": "rf",
              "SVC": "svm" }
 

@@ -10,6 +10,7 @@ import time
 
 from sklearn import cross_validation as cv
 from sklearn import ensemble
+from sklearn import linear_model
 from sklearn import metrics
 from sklearn import neighbors
 from sklearn import tree
@@ -75,6 +76,7 @@ if __name__ == "__main__":
     clfs = [
         (tree.ExtraTreeClassifier(), "et"),
         (neighbors.KNeighborsClassifier(), "knn"),
+        (linear_model.LogisticRegression(), "lr"),
         (ensemble.RandomForestClassifier(), "rf")
     ]
     results = []
