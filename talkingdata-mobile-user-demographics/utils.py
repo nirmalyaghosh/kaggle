@@ -97,11 +97,6 @@ def make_submission_file(model, predicted_vals, name_prefix):
 def prepare_device_related_datasets(data_dir):
     logger.info("Preparing device related datasets")
     deviceinfo = read_gz(data_dir, "phone_brand_device_model.csv.gz")
-    # Encode the device_model (1599 unique device models)
-    le = preprocessing.LabelEncoder()
-    device_models = deviceinfo.device_model.values.tolist()
-    le.fit(device_models)
-    deviceinfo["device_model_id"] = le.transform(device_models).tolist()
 
     # Extract the phone brand names - translate Chinese to English
     file_path = os.path.join(data_dir, "phone_brands_map.txt")
@@ -120,6 +115,13 @@ def prepare_device_related_datasets(data_dir):
     # Convert the index into a column and rename it brand ID
     phone_brands.reset_index(level=0, inplace=True)
     phone_brands.rename(columns={"index": "phone_brand_id"}, inplace=True)
+
+    # Some device_model (such as S6, T5, T9, X5, X6, etc.)
+    # associated with more than one phone_brand.
+    # So concatenate phone_brand and device_model and then encode it
+    m_d = deviceinfo.phone_brand.str.cat(deviceinfo.device_model)
+    le = preprocessing.LabelEncoder().fit(m_d)
+    deviceinfo["device_model_id"] = le.transform(m_d)
 
     # Merge device info with phone brands
     deviceinfo = pd.merge(deviceinfo, phone_brands)
