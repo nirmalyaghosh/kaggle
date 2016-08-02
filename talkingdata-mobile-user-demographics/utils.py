@@ -18,6 +18,7 @@ import pandas as pd
 from sklearn import grid_search
 from sklearn import preprocessing
 from sklearn.externals import joblib
+from sklearn.feature_extraction.text import CountVectorizer
 
 from td_config import cfg, logger
 
@@ -92,6 +93,85 @@ def make_submission_file(model, predicted_vals, name_prefix):
             gzip.open(file_path + '.gz', 'wb') as f_out:
         shutil.copyfileobj(f_in, f_out)
     logger.info("See %s.gz" % file_path)
+
+
+def prepare_bag_of_apps_datasets(data_dir):
+    # Based on : https://www.kaggle.com/xiaoml/talkingdata-mobile-user-demographics/low-ram-bag-of-apps-python/
+
+    # First, check if the datasets have already been created
+    boa_file_path_1 = os.path.join(data_dir, "bag_of_apps_train.h5")
+    boa_file_path_2 = os.path.join(data_dir, "bag_of_apps_test.h5")
+    if os.path.exists(boa_file_path_1) and os.path.exists(boa_file_path_2):
+        logger.info("Reading Bag-of-Apps datasets from {} & {}"
+                    .format(boa_file_path_1, boa_file_path_2))
+        a = pd.read_hdf(boa_file_path_1, "a")
+        b = pd.read_hdf(boa_file_path_2, "b")
+        return a, b
+
+    # Create the datasets
+    logger.info("Preparing Bag-of-Apps datasets")
+    app_labels = read_gz(data_dir, "app_labels.csv.gz")
+    app_labels = app_labels.groupby("app_id")["label_id"]\
+        .apply(lambda x: " ".join(str(s) for s in x))
+
+    app_events = read_gz(data_dir, "app_events.csv.gz")
+    app_events["app_labels"] = app_events["app_id"].map(app_labels)
+    app_events = app_events.groupby("event_id")["app_labels"]\
+        .apply(lambda x: " ".join(str(s) for s in x))
+    del app_labels
+
+    events = pd.read_csv(os.path.join(data_dir, "events.csv.gz"),
+                         dtype={"device_id": np.str})
+    events["app_labels"] = events["event_id"].map(app_events)
+    events = events.groupby("device_id")["app_labels"]\
+        .apply(lambda x: " ".join(str(s) for s in x))
+    del app_events
+
+    pbd = pd.read_csv(os.path.join(data_dir, "phone_brand_device_model.csv.gz"),
+                      dtype={"device_id": np.str})
+    pbd.drop_duplicates("device_id", keep="first", inplace=True)
+
+    _train = read_gz(data_dir, "gender_age_train.csv.gz")
+    _train["app_labels"] = _train["device_id"].map(events)
+    _train = pd.merge(_train, pbd, how="left", on="device_id", left_index=True)
+    _test = read_gz(data_dir, "gender_age_test.csv.gz")
+    _test["app_labels"] = _test["device_id"].map(events)
+    _test = pd.merge(_test, pbd, how="left", on="device_id", left_index=True)
+    del pbd
+    del events
+
+    df_all = pd.concat((_train, _test), axis=0, ignore_index=True)
+    split_len = len(_train)
+    vec = CountVectorizer(min_df=1, binary=1)
+    df_all = df_all[["phone_brand", "device_model", "app_labels"]]\
+        .astype(np.str).apply(lambda x: " ".join(s for s in x), axis=1)\
+        .fillna("Missing")
+    df_tfv = vec.fit_transform(df_all) # 186716 x 2045 sparse matrix
+    _train = df_tfv[:split_len, :] # 74645 x 2045 sparse matrix
+    _test = df_tfv[split_len:, :] # 112071 x 2045 sparse matrix
+
+    # Converting the sparse matrix into a DataFrame
+    a = pd.SparseDataFrame([ pd.SparseSeries(_train[i].toarray().ravel())
+                             for i in np.arange(_train.shape[0]) ])
+    b = pd.SparseDataFrame([ pd.SparseSeries(_test[i].toarray().ravel())
+                             for i in np.arange(_test.shape[0]) ])
+    # Rename the columns
+    app_labels_cols = ["a" + str(x) for x in np.arange(0, a.shape[1]).tolist()]
+    d = dict(zip(np.arange(0, a.shape[1]).tolist(), app_labels_cols))
+    a.rename(columns=d, inplace=True)
+    b.rename(columns=d, inplace=True)
+    # Write to file
+    a.to_sparse(kind='block')\
+        .to_hdf(boa_file_path_1, "a", mode="w", complib="blosc", complevel=9)
+    b.to_sparse(kind='block')\
+        .to_hdf(boa_file_path_2, "b", mode="w", complib="blosc", complevel=9)
+    del _train
+    del _test
+
+    # TO USE, DO
+    # train = pd.merge(train, a, left_index=True , right_index=True)
+
+    return a, b # bag-of-apps datasets
 
 
 def prepare_device_related_datasets(data_dir):
