@@ -34,7 +34,8 @@ def find_best_estimator(base_estimator, X, y, section, verbosity=3):
     # grid_search_params_key : key under the indicated section of the
     # configuration YML file containing the grid search parameters
     if cfg[section]["find_best"] == False:
-        return
+        base_estimator.fit(X, y)
+        return base_estimator
 
     cv_nfold = cfg[section]["cv_nfold"]
     name = type(base_estimator).__name__
