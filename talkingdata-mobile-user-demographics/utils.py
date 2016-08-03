@@ -14,7 +14,6 @@ import time
 
 import numpy as np
 import pandas as pd
-
 from sklearn import grid_search
 from sklearn import preprocessing
 from sklearn.externals import joblib
@@ -22,8 +21,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 
 from td_config import cfg, logger
 
-
-clf_keys = { "ExtraTreeClassifier" : "et",
+clf_keys = { "ExtraTreesClassifier" : "et",
              "KNeighborsClassifier": "knn",
              "LogisticRegression": "lr",
              "RandomForestClassifier": "rf",

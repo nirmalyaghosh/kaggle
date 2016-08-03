@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Approach 1 : 
-
+Approach 1 : Makes use of basic features + the number of events per hour for
+each device, then compares a few classifiers and selects the one with lowest
+log loss.
 """
 
 import numpy as np
@@ -9,11 +10,10 @@ import pandas as pd
 import time
 
 from sklearn import cross_validation as cv
-from sklearn import ensemble
-from sklearn import linear_model
 from sklearn import metrics
-from sklearn import neighbors
-from sklearn import tree
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
 from tabulate import tabulate
 
 import utils
@@ -74,10 +74,10 @@ if __name__ == "__main__":
 
     # Compare a few classifiers
     clfs = [
-        (tree.ExtraTreeClassifier(), "et"),
-        (neighbors.KNeighborsClassifier(), "knn"),
-        (linear_model.LogisticRegression(), "lr"),
-        (ensemble.RandomForestClassifier(), "rf")
+        (ExtraTreesClassifier(), "et"),
+        (KNeighborsClassifier(), "knn"),
+        (LogisticRegression(), "lr"),
+        (RandomForestClassifier(), "rf")
     ]
     results = []
     for clf in clfs:
