@@ -21,7 +21,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 
 from td_config import cfg, logger
 
-clf_keys = { "ExtraTreesClassifier" : "et",
+clf_keys = { "ExtraTreesClassifier": "et",
              "KNeighborsClassifier": "knn",
              "LogisticRegression": "lr",
              "RandomForestClassifier": "rf",
@@ -228,6 +228,9 @@ def prepare_events_per_hour_per_device_dataset(data_dir):
     ephpd = pd.merge(ephpd, ephpd_normalized,
                      right_index=True, left_index=True, suffixes=('', '_n'))
     return ephpd
+
+def read_estimator_params(section, estimator_suffix):
+    return cfg[section]["params_" + estimator_suffix]
 
 
 def read_gz(data_dir, file_name):
