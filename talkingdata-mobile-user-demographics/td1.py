@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Approach 1 : Makes use of basic features + the number of events per hour for
-each device, then compares a few classifiers and selects the one with lowest
-log loss.
+each device, then compares 2 methods to choose the one with lowest log loss.
+
+First method involves comparing a few classifiers.
+Second method uses stacked generalization, where the output of the Level 0
+classifiers is fed to train the blended classifier.
+
+Reference : http://www.chioka.in/stacking-blending-and-stacked-generalization/
+
+@author: Nirmalya Ghosh
 """
 
 import numpy as np
@@ -14,6 +21,7 @@ from sklearn import metrics
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import LabelEncoder
 from tabulate import tabulate
 
 import utils
@@ -54,12 +62,52 @@ def prepare_datasets(data_dir):
     return train, test, target
 
 
-def train_model(X, y, clf):
-    model = utils.find_best_estimator(clf, X, y, section="approach1")
-    preds = model.predict_proba(X_eval)
-    log_loss = metrics.log_loss(y_eval, preds)
-    logger.info("Log loss : %.6f" % log_loss)
-    return model, log_loss
+def run_stacked_generalization(clfs, X, y):
+    # Shuffle
+    idx = np.random.permutation(X.index)
+    X = X.iloc[idx]
+    y = y[idx]
+
+    dev_cutoff = len(y) * 4/5
+    X_dev = X[:dev_cutoff]  # (35829, 28)
+    y_dev = y[:dev_cutoff]  # (35829L,)
+    X_test = X[dev_cutoff:] # (8958, 28)
+    y_test = y[dev_cutoff:] # (8958L,)
+
+    skf = list(cv.StratifiedKFold(y_dev, cfg[s]["cv_nfold"]))
+
+    # Pre-allocate the data
+    blend_train = np.zeros((X_dev.shape[0], len(clfs))) # (35829L, 3L)
+    blend_test = np.zeros((X_test.shape[0], len(clfs))) # (8958L, 3L)
+
+    # For each classifier, we train the number of fold times (=len(skf))
+    for j, clf in enumerate(clfs):
+        print("Training classifier {}".format(type(clf).__name__))
+        blend_test_j = np.zeros((X_test.shape[0], len(skf)))
+
+        # Number of testing data x Number of folds , we will take the mean of the predictions later
+        for i, (train_index, cv_index) in enumerate(skf):
+            print("Fold {}".format(i))
+            X_train = X_dev.as_matrix()[train_index] # (17911L, 28L)
+            Y_train = y_dev[train_index]             # (17911L,)
+            X_valid = X_dev.as_matrix()[cv_index]    # (17918L, 28L)
+            Y_valid = y_dev[cv_index]                # (17918L,)
+
+            clf.fit(X_train, Y_train)
+            blend_train[cv_index, j] = clf.predict_proba(X_valid)[:, 1]
+            blend_test_j[:, i] = clf.predict_proba(X_test)[:,1]
+
+        # Take the mean of the predictions of the cross validation set
+        blend_test[:, j] = blend_test_j.mean(1)
+
+    # Level 1 classifier, which does the blending
+    # bclf = LogisticRegression(C=0.1, random_state=480, tol=0.005,
+    #                           solver="newton-cg")
+    bclf = LogisticRegression()
+    bclf.fit(blend_train, y_dev)
+    y_test_predict = bclf.predict_proba(blend_test)
+    log_loss = metrics.log_loss(y_test, y_test_predict)
+    return bclf, blend_test, log_loss
 
 
 if __name__ == "__main__":
@@ -69,27 +117,66 @@ if __name__ == "__main__":
 
     train, test, target = prepare_datasets("data")
     random_state = cfg["common"]["seed"]
-    X, X_eval, y, y_eval = cv.train_test_split(train, target, test_size=0.4,
-                                               random_state=random_state)
+    X_train, X_valid, y_train, y_valid = cv.train_test_split(
+        train, target, test_size=0.4, random_state=random_state)
+    X_submission = test.values[:, 1:]
 
-    # Compare a few classifiers
+    # Transforming the string output to numeric
+    label_encoder = LabelEncoder()
+    label_encoder.fit(target)
+    num_classes = len(label_encoder.classes_)
+    y = label_encoder.transform(target)
+
+    # Level 0 classifiers
     clfs = [
-        (ExtraTreesClassifier(), "et"),
-        (KNeighborsClassifier(), "knn"),
-        (LogisticRegression(), "lr"),
-        (RandomForestClassifier(), "rf")
+        ExtraTreesClassifier(**utils.read_estimator_params(s, "et")),
+        KNeighborsClassifier(),
+        LogisticRegression(**utils.read_estimator_params(s, "lr")),
+        RandomForestClassifier(**utils.read_estimator_params(s, "rf"))
     ]
-    results = []
+
+    # First, run grid search (if enabled) to find the best estimator
+    results_1 = []
     for clf in clfs:
-        model, log_loss = train_model(X, y, clf[0])
-        results.append((clf[1], model, log_loss))
-        logger.info("Time taken : %.2f seconds" % (time.time() - t0))
+        ts = time.time()
+        clf_name = type(clf).__name__
+        model = utils.find_best_estimator(clf, X_train, y_train, section=s)
+        preds = model.predict_proba(X_valid)
+        log_loss = metrics.log_loss(y_valid, preds)
+        results_1.append((utils.get_key(clf_name), model, log_loss))
+        logger.info("Trained {} in {:.2f} seconds, Log loss : {:.6f}"
+            .format(clf_name, (time.time() - ts), log_loss))
     # Sort by log_loss
-    results.sort(key=lambda tup: tup[2])
+    results_1.sort(key=lambda tup: tup[2])
+    logger.info(tabulate(zip([r[0] for r in results_1],
+                             [r[2] for r in results_1]),
+                         floatfmt=".4f", headers=("model", "log_loss")))
+    clfs = [clf[1] for clf in results_1] # required for blending stage
+
+    # Next, run stacked generalization (blending)
+    logger.info("Start blending")
+    results_2 = []
+    for i in xrange(cfg[s]["n_blends"]):
+        print("Iteration {}".format(i))
+        bclf, b_t, log_loss = run_stacked_generalization(clfs, train, target)
+        results_2.append((bclf, b_t, log_loss))
+        logger.info("Iteration {}, Log loss : {:.4f}".format(i, log_loss))
+    # Sort by log_loss
+    results_2.sort(key=lambda tup: tup[2])
 
     # Prepare the DataFrame containing from the predicted_probabilities
-    model = results[0][1]
-    predicted_probabilities = model.predict_proba(test)
+    log_loss_1, log_loss_2 = results_1[0][2], results_2[0][2]
+    model, predicted_probabilities = None, None
+    if log_loss_1 < log_loss_2:
+        logger.info("Method 1 has lower log loss {:.4f}".format(log_loss_1))
+        model = results_1[0][1]
+        predicted_probabilities = model.predict_proba(test)
+    else:
+        logger.info("Method 2 has lower log loss {:.4f}".format(log_loss_2))
+        model = results_2[0][0]
+        blend_test = results_2[0][1]
+        predicted_probabilities = model.predict_proba(blend_test)
+
     df = pd.DataFrame(predicted_probabilities)
     df["device_id"] = test["device_id"]
     df = df[["device_id"] + np.arange(0, 12).tolist()]
@@ -97,6 +184,5 @@ if __name__ == "__main__":
     df.rename(columns=new_names, inplace=True)
 
     # Submission file
-    logger.info(tabulate(zip([r[0] for r in results], [r[2] for r in results]),
-                         floatfmt=".4f", headers=("model", "log_loss")))
-    utils.make_submission_file(model, df, "%s_" % results[0][0])
+    prefix = utils.get_key(type(model).__name__)
+    utils.make_submission_file(model, df, "{}_".format(prefix))
