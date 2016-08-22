@@ -231,13 +231,18 @@ def prepare_events_per_hour_per_device_dataset(data_dir):
                      right_index=True, left_index=True, suffixes=('', '_n'))
     return ephpd
 
+
 def read_estimator_params(section, estimator_suffix):
     return cfg[section]["params_" + estimator_suffix]
 
 
-def read_gz(data_dir, file_name):
+def read_gz(data_dir, file_name, cols_to_read=None):
     file_path = os.path.join(data_dir, file_name)
-    return pd.read_csv(file_path, index_col=False, encoding="utf-8-sig")
+    if cols_to_read:
+        return pd.read_csv(file_path, index_col=False, encoding="utf-8-sig",
+                           usecols=cols_to_read)
+    else:
+        return pd.read_csv(file_path, index_col=False, encoding="utf-8-sig")
 
 
 def report_grid_search_scores(grid_scores, n_top=5):
