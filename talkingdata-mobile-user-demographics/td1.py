@@ -34,6 +34,9 @@ def prepare_datasets(data_dir):
     # Count number of events per hour for each device (ephpd)
     ephpd = utils.prepare_events_per_hour_per_device_dataset(data_dir)
 
+    # Events spread over 6 windows/splits through the day
+    esd = utils.prepare_events_spread_dataset(data_dir)
+
     # Read the training & test datasets
     train = utils.read_gz(data_dir, "gender_age_train.csv.gz")
     test = utils.read_gz(data_dir, "gender_age_test.csv.gz")
@@ -41,6 +44,9 @@ def prepare_datasets(data_dir):
     # Merge train and test with the events per hour per device dataset, ephpd
     train = pd.merge(train, ephpd, how="left")
     test = pd.merge(test, ephpd, how="left")
+    # Merge train and test with the events spread dataset, esd
+    train = pd.merge(train, esd, how="left")
+    test = pd.merge(test, esd, how="left")
 
     # Merge train and test with a subset of columns of the device info dataset
     df2 = deviceinfo[["device_id", "phone_brand_id", "is_foreign_brand",

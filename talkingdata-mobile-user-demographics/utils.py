@@ -232,6 +232,44 @@ def prepare_events_per_hour_per_device_dataset(data_dir):
     return ephpd
 
 
+def prepare_events_spread_dataset(data_dir):
+    # Calculates spread of events over 6 splits:
+    # Morning (5AM-10AM), Mid-day (10AM-2PM), Afternoon (2PM-5PM),
+    # Evening (5PM-10PM), Night (10PM-1AM), NightOwl (1AM-5AM)
+    logger.info("Preparing the events spread dataset")
+    events = read_gz(data_dir, "events.csv.gz",
+                     cols_to_read=["event_id", "device_id", "timestamp"])
+    events.timestamp = pd.to_datetime(events.timestamp)
+    events["time_hour"] = events.timestamp.apply(lambda x: x.hour)
+    s = events.groupby(["device_id","time_hour"]).size()
+    df = s.unstack(level=-1)
+
+    # Create hour-of-day columns showing number of events per hour
+    hour_of_day_cols = ["h" + str(x) for x in np.arange(0, 24).tolist()]
+    d = dict(zip(np.arange(0, 24).tolist(), hour_of_day_cols))
+    df.rename(columns=d, inplace=True)
+    df = df.fillna(0)
+
+    # Split into 6 splits
+    #df["usage_morning"] = df_tmp[["h" + str(x) for x in np.arange(5, 10).tolist()]].sum(axis=1)
+    df["h_morning"] = df[["h" + str(x) for x in [5, 6, 7, 8, 9]]].sum(axis=1)
+    df["h_midday"] = df[["h" + str(x) for x in [10, 11, 12, 13]]].sum(axis=1)
+    df["h_afternoon"] = df[["h" + str(x) for x in [14, 15, 16]]].sum(axis=1)
+    df["h_evening"] = df[["h" + str(x) for x in [17, 18, 19, 20, 21]]].sum(axis=1)
+    df["h_night"] = df[["h" + str(x) for x in [22, 23, 0]]].sum(axis=1)
+    df["h_nightowl"] = df[["h" + str(x) for x in [1, 2, 3, 4]]].sum(axis=1)
+
+    # Drop the hour-of-day columns
+    df.drop(hour_of_day_cols, axis=1, inplace=True)
+
+    # Normalize rows
+    df = df.div(df.sum(axis=1), axis=0).round(2)
+
+    df.reset_index(level=0, inplace=True)
+
+    return df
+
+
 def read_estimator_params(section, estimator_suffix):
     return cfg[section]["params_" + estimator_suffix]
 
