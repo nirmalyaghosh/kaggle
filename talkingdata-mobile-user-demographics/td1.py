@@ -20,7 +20,6 @@ from sklearn import cross_validation as cv
 from sklearn import metrics
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 from tabulate import tabulate
 
@@ -44,9 +43,16 @@ def prepare_datasets(data_dir):
     # Merge train and test with the events per hour per device dataset, ephpd
     train = pd.merge(train, ephpd, how="left")
     test = pd.merge(test, ephpd, how="left")
+    for col in list(ephpd.columns.values):
+        train[col].fillna(0, inplace=True)
+        test[col].fillna(0, inplace=True)
+
     # Merge train and test with the events spread dataset, esd
     train = pd.merge(train, esd, how="left")
     test = pd.merge(test, esd, how="left")
+    for col in list(esd.columns.values):
+        train[col].fillna(0, inplace=True)
+        test[col].fillna(0, inplace=True)
 
     # Merge train and test with a subset of columns of the device info dataset
     df2 = deviceinfo[["device_id", "phone_brand_id", "is_foreign_brand",
@@ -65,6 +71,8 @@ def prepare_datasets(data_dir):
     target = train.group.values
     train = train.drop(["group"], axis=1)
     train.fillna(-1, inplace=True)
+    logger.info("train.columns : {}".format(list(train.columns.values)))
+    logger.info(train.head())
     return train, test, target
 
 
@@ -136,7 +144,6 @@ if __name__ == "__main__":
     # Level 0 classifiers
     clfs = [
         ExtraTreesClassifier(**utils.read_estimator_params(s, "et")),
-        KNeighborsClassifier(),
         LogisticRegression(**utils.read_estimator_params(s, "lr")),
         RandomForestClassifier(**utils.read_estimator_params(s, "rf"))
     ]
