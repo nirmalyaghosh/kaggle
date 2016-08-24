@@ -176,6 +176,8 @@ def prepare_bag_of_apps_datasets(data_dir):
 def prepare_device_related_datasets(data_dir):
     logger.info("Preparing device related datasets")
     deviceinfo = read_gz(data_dir, "phone_brand_device_model.csv.gz")
+    # Get rid of duplicate device ids
+    deviceinfo = deviceinfo.drop_duplicates("device_id", keep="first")
 
     # Extract the phone brand names - translate Chinese to English
     file_path = os.path.join(data_dir, "phone_brands_map.txt")
