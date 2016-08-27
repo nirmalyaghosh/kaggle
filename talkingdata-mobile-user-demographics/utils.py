@@ -18,6 +18,8 @@ from sklearn import grid_search
 from sklearn import preprocessing
 from sklearn.externals import joblib
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.preprocessing import LabelEncoder
+from scipy.sparse import csr_matrix, hstack
 
 from td_config import cfg, logger
 
@@ -268,6 +270,114 @@ def prepare_events_spread_dataset(data_dir):
     df.reset_index(level=0, inplace=True)
 
     return df
+
+
+def prepare_sparse_features_dataset(data_dir):
+    # Credit : Data preparation strategy influenced by the script
+    # written by dune_dweller,
+    # https://www.kaggle.com/dvasyukova/talkingdata-mobile-user-demographics/a-linear-model-on-apps-and-labels
+
+    # First, read the datasets
+    gatrain = pd.read_csv(os.path.join(data_dir, "gender_age_train.csv.gz"),
+                          index_col = "device_id")
+    gatest = pd.read_csv(os.path.join(data_dir, "gender_age_test.csv.gz"),
+                         index_col = "device_id")
+    phone = pd.read_csv(os.path.join(data_dir, "phone_brand_device_model.csv"))
+    # Get rid of duplicate device ids in phone
+    phone = phone.drop_duplicates("device_id", keep="first")\
+        .set_index("device_id")
+    events = pd.read_csv(os.path.join(data_dir, "events.csv.gz"),
+                         parse_dates=["timestamp"], index_col="event_id")
+    appevents = pd.read_csv(os.path.join(data_dir, "app_events.csv.gz"),
+                            usecols=["event_id", "app_id", "is_active"],
+                            dtype={"is_active":bool})
+    applabels = pd.read_csv(os.path.join(data_dir, "app_labels.csv.gz"))
+
+    gatrain["trainrow"] = np.arange(gatrain.shape[0])
+    gatest["testrow"] = np.arange(gatest.shape[0])
+
+    # Next, create the sparse features
+    #Phone brand
+    brandencoder = LabelEncoder().fit(phone.phone_brand)
+    phone["brand"] = brandencoder.transform(phone["phone_brand"])
+    gatrain["brand"] = phone["brand"]
+    gatest["brand"] = phone["brand"]
+    Xtr_brand = csr_matrix((np.ones(gatrain.shape[0]),
+                           (gatrain.trainrow, gatrain.brand)))
+    Xte_brand = csr_matrix((np.ones(gatest.shape[0]),
+                           (gatest.testrow, gatest.brand)))
+    logger.info("Brand features: train shape {}, test shape {}"
+                .format(Xtr_brand.shape, Xte_brand.shape))
+
+    # Device model
+    m = phone.phone_brand.str.cat(phone.device_model)
+    modelencoder = LabelEncoder().fit(m)
+    phone["model"] = modelencoder.transform(m)
+    gatrain["model"] = phone["model"]
+    gatest["model"] = phone["model"]
+    Xtr_model = csr_matrix((np.ones(gatrain.shape[0]),
+                           (gatrain.trainrow, gatrain.model)))
+    Xte_model = csr_matrix((np.ones(gatest.shape[0]),
+                           (gatest.testrow, gatest.model)))
+    logger.info("Model features: train shape {}, test shape {}"
+                .format(Xtr_model.shape, Xte_model.shape))
+
+    # Installed apps features
+    appencoder = LabelEncoder().fit(appevents.app_id)
+    appevents["app"] = appencoder.transform(appevents.app_id)
+    napps = len(appencoder.classes_)
+    logger.info(napps, "apps")
+    deviceapps = (appevents.merge(events[["device_id"]], how="left",
+                                  left_on="event_id",right_index=True)
+                           .groupby(["device_id","app"])["app"].agg(["size"])
+                           .merge(gatrain[["trainrow"]], how="left",
+                                  left_index=True, right_index=True)
+                           .merge(gatest[["testrow"]], how="left",
+                                  left_index=True, right_index=True)
+                           .reset_index())
+
+    d = deviceapps.dropna(subset=['trainrow'])
+    Xtr_app = csr_matrix((np.ones(d.shape[0]), (d.trainrow, d.app)),
+                          shape=(gatrain.shape[0],napps))
+    d = deviceapps.dropna(subset=['testrow'])
+    Xte_app = csr_matrix((np.ones(d.shape[0]), (d.testrow, d.app)),
+                          shape=(gatest.shape[0],napps))
+    logger.info("Apps data: train shape {}, test shape {}"
+                .format(Xtr_app.shape, Xte_app.shape))
+
+    # App labels features
+    applabels = applabels.loc[applabels.app_id.isin(appevents.app_id.unique())]
+    applabels["app"] = appencoder.transform(applabels.app_id)
+    labelencoder = LabelEncoder().fit(applabels.label_id)
+    applabels["label"] = labelencoder.transform(applabels.label_id)
+    nlabels = len(labelencoder.classes_)
+
+    devicelabels = (deviceapps[["device_id","app"]]
+                    .merge(applabels[["app","label"]])
+                    .groupby(["device_id","label"])["app"].agg(["size"])
+                    .merge(gatrain[["trainrow"]], how='left', left_index=True,
+                           right_index=True)
+                    .merge(gatest[["testrow"]], how='left', left_index=True,
+                           right_index=True)
+                    .reset_index())
+
+    d = devicelabels.dropna(subset=["trainrow"])
+    Xtr_label = csr_matrix((np.ones(d.shape[0]), (d.trainrow, d.label)),
+                          shape=(gatrain.shape[0],nlabels))
+    d = devicelabels.dropna(subset=["testrow"])
+    Xte_label = csr_matrix((np.ones(d.shape[0]), (d.testrow, d.label)),
+                          shape=(gatest.shape[0],nlabels))
+    logger.info("Labels data: train shape {}, test shape {}"
+                .format(Xtr_label.shape, Xte_label.shape))
+
+    # Concatenate all features
+    Xtrain = hstack((Xtr_brand, Xtr_model, Xtr_app, Xtr_label), format="csr")
+    Xtest =  hstack((Xte_brand, Xte_model, Xte_app, Xte_label), format="csr")
+    # Xtrain and Xtest are of type, scipy.sparse.csr.csr_matrix
+    logger.info("All features: train shape {}, test shape {}"
+                .format(Xtrain.shape, Xtest.shape))
+
+    return Xtrain, Xtest
 
 
 def read_estimator_params(section, estimator_suffix):
