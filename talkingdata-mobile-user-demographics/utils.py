@@ -79,6 +79,12 @@ def get_key(clf_name):
     return clf_keys[clf_name] if clf_name in clf_keys else None
 
 
+def gzip_file(f_path):
+    with open(f_path, "rb") as f_in, gzip.open(f_path + ".gz", "wb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
+    logger.info("See %s.gz" % f_path)
+
+
 def make_submission_file(model, predicted_vals, name_prefix):
     ts = time.strftime("%a_%d%b%Y_%H%M%S")
     # First, save the model [See http://stackoverflow.com/a/11169797]
@@ -90,9 +96,7 @@ def make_submission_file(model, predicted_vals, name_prefix):
     file_path = os.path.join("submissions", "%s%s.csv" % (name_prefix, ts))
     predicted_vals.to_csv(file_path, index=False,
                           quoting=csv.QUOTE_NONE)
-    with open(file_path, 'rb') as f_in, \
-            gzip.open(file_path + '.gz', 'wb') as f_out:
-        shutil.copyfileobj(f_in, f_out)
+    gzip_file(file_path)
     logger.info("See %s.gz" % file_path)
 
 
