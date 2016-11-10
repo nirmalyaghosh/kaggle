@@ -47,8 +47,10 @@ def get_winsorized_version(x, cut_off_percentage=0.05):
 
 def log_column_NA_counts(_df):
     for col_name in _df.columns.values.tolist():
-        logging.info("'{}' column has {} NAs" \
-                     .format(col_name, _df[col_name].isnull().sum()))
+        na_count = _df[col_name].isnull().sum()
+        if na_count > 0:
+            logging.info("'{}' column has {} NAs"\
+                         .format(col_name, na_count))
 
 
 def mad_based_outliers(points, thresh=3.5):
