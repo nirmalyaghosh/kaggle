@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Approach 1 : Get rid of outliers, predict/impute the missing values,
+split into near-equal sized buckets a few continuous variables,
 then under-sample the majority class to deal with class imbalance and
 finally build a few simple models to predict delinquency.
 
@@ -14,6 +15,7 @@ import numpy as np
 import pandas as pd
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.externals import joblib
 from sklearn.preprocessing import Imputer
 
 import utils
@@ -37,6 +39,8 @@ colmap = {"NumberOfTime30-59DaysPastDueNotWorse": "NumLate3059",
           "RevolvingUtilizationOfUnsecuredLines": "RUoUL"
           }
 
+rs = 329521  # random_state
+
 
 def _main():
     np.random.seed(329521)
@@ -47,17 +51,24 @@ def _main():
 
     # Preparing dataset for training
     cols = list(tr_df.columns.values.tolist())
-    for col in ["MonthlyIncome", "SeriousDlqin2yrs"]:
+    for col in ["age", "MonthlyIncome", "SeriousDlqin2yrs"]:
         cols.remove(col)
-    # Normalize
+
     X, _ = utils.normalize_df(tr_df[cols])
     X = X.as_matrix()
     y = tr_df["SeriousDlqin2yrs"].values
 
     # Train
-    est = RandomForestClassifier(n_estimators=200, n_jobs=-1,
-                                 random_state=329521)
-    est = utils.train_estimator(est, X, y, 5)
+    logger.info("Features used for training : {}".format(cols))
+    est = RandomForestClassifier(n_estimators=200, n_jobs=-1, random_state=rs)
+    # est = utils.train_estimator(est, X, y, 5)
+    est = est.fit(X, y)
+    features = pd.DataFrame()
+    features["feature"] = cols
+    features["importance"] = est.feature_importances_
+    features = features.sort_values(by=["importance"], ascending=False)
+    topn = 15
+    logger.info("Top {} Features : \n{}".format(topn, features.head(topn)))
 
     logger.info("Get the predictions ...")
     te_df_, _ = utils.normalize_df(te_df[cols])
@@ -75,6 +86,7 @@ def _handle_class_imbalance(_df, is_train=True):
     y = df2.SeriousDlqin2yrs.values
     df_tmp = _df[["MonthlyIncome"]]
     df2.drop(["MonthlyIncome", "SeriousDlqin2yrs"], axis=1, inplace=True)
+
     # Imputing missing values for the 'NumDependents' column
     imp = Imputer(missing_values="NaN", strategy="median", axis=1)
     X = imp.fit_transform(df2.as_matrix())
@@ -82,7 +94,6 @@ def _handle_class_imbalance(_df, is_train=True):
 
     # Under-sampling the majority class in train data
     logger.info("Under-sampling the majority class in {} ...".format(df_name))
-    # imb_handler = SMOTE(kind="regular")
     imb_handler = RandomUnderSampler()
 
     X = df2.as_matrix()
@@ -136,12 +147,17 @@ def _predict_monthly_income(tr_df, te_df):
                         Y_test.shape))
 
     # Train the model
-    logger.info("Training model to predict MonthlyIncome")
-    est = RandomForestRegressor(n_estimators=200, n_jobs=-1,
-                                random_state=329521)
-    scorer_name = "neg_median_absolute_error"
-    scores = utils.get_cv_scores(est, X_train, Y_train, scorer_name)
-    est.fit(X_train, Y_train)
+    pickle_file = "monthly_income_predictor.pkl"
+    if os.path.exists(pickle_file):
+        est = joblib.load(pickle_file)
+    else:
+        logger.info("Training model to predict MonthlyIncome")
+        est = RandomForestRegressor(n_estimators=200, n_jobs=-1,
+                                    random_state=329521)
+        scorer_name = "neg_median_absolute_error"
+        scores = utils.get_cv_scores(est, X_train, Y_train, scorer_name)
+        est.fit(X_train, Y_train)
+        joblib.dump(est, "monthly_income_predictor.pkl")
 
     # Predict the MonthlyIncome
     est_name = est.__class__.__name__
@@ -191,9 +207,9 @@ def _predict_monthly_income(tr_df, te_df):
                    suffixes=("", "_y"))
 
     # Next, retains the columns we need - and, in the order we need
-    cols = ["SeriousDlqin2yrs", "RUoUL", "age", "NumLate3059", "DebtRatio",
-            "MonthlyIncome", "MonthlyIncome_y", "NumOCLL", "NumLate90",
-            "NumRELL", "NumLate6089", "NumDependents"]
+    cols = ["SeriousDlqin2yrs", "RUoUL", "age", "NumLate3059",
+            "DebtRatio", "MonthlyIncome", "MonthlyIncome_y", "NumOCLL",
+            "NumLate90", "NumRELL", "NumLate6089", "NumDependents"]
     df1, df2 = df1[cols], df2[cols]
     df1.rename(columns={"MonthlyIncome_y": "MonthlyIncome_Imputed"},
                inplace=True)
@@ -201,24 +217,28 @@ def _predict_monthly_income(tr_df, te_df):
                inplace=True)
 
     tr_df, te_df = df1, df2
+    tr_df.to_csv(os.path.join("data", "tr_with_income.csv"))
+    te_df.to_csv(os.path.join("data", "te_with_income.csv"))
 
     logger.info("Done predicting the missing MonthlyIncome ...")
+    tr_df["MonthlyIncome"] = tr_df["MonthlyIncome_Imputed"]
+    te_df["MonthlyIncome"] = te_df["MonthlyIncome_Imputed"]
     return tr_df, te_df
 
 
 def _prepare_submission_file(identifiers, probabilities):
-    submission_df = pd.DataFrame(list(zip(identifiers, probabilities)),
-                                 columns=["Id", "Probability"])
+    subm_df = pd.DataFrame(list(zip(identifiers, probabilities)),
+                           columns=["Id", "Probability"])
     expected = np.arange(1, 101504).tolist()
     missing_indices = list(set(expected).difference(identifiers))
     if missing_indices and len(missing_indices) > 0:
         logger.info("No probabilities for {} IDs".format(len(missing_indices)))
         tmp_df = pd.read_csv(os.path.join("data", "sampleEntry.csv"))
         tmp_df = tmp_df[tmp_df["Id"].isin(missing_indices)]
-        submission_df = pd.concat([tmp_df, submission_df])
-        submission_df = submission_df.sort_values(by=["Id"], ascending=[1])
+        subm_df = pd.concat([tmp_df, subm_df])
+        subm_df = subm_df.sort_values(by=["Id"], ascending=[1])
 
-    submission_df.to_csv("submission.csv", float_format="%.9f", index=False)
+    subm_df.to_csv("submission.csv", float_format="%.9f", index=False)
 
 
 def _preprocess_data(tr_df, te_df):
@@ -247,8 +267,8 @@ def _preprocess_data(tr_df, te_df):
     te_df = te_df[mask]
 
     # Next,
-    tr_df.drop(["SeriousDlqin2yrs", "NumDependents"], axis=1, inplace=True)
-    te_df.drop(["SeriousDlqin2yrs", "NumDependents"], axis=1, inplace=True)
+    tr_df.drop(["SeriousDlqin2yrs"], axis=1, inplace=True)
+    te_df.drop(["SeriousDlqin2yrs"], axis=1, inplace=True)
 
     # Reorder the columns
     cols = ["RUoUL", "age", "NumLate3059", "NumLate6089", "NumLate90",
@@ -256,8 +276,23 @@ def _preprocess_data(tr_df, te_df):
     tr_df = tr_df[cols]
     te_df = te_df[cols]
 
+    # Split age into 10 near-equal-sized buckets and convert to dummy variables
+    tr_df = utils.split_into_buckets(tr_df, "age", 10, True, False)
+    te_df = utils.split_into_buckets(te_df, "age", 10, True, False)
+
     # Next, predict the MonthlyIncome (where missing)
     tr_df, te_df = _predict_monthly_income(tr_df, te_df)
+
+    # Split MonthlyIncome into 10 near-equal-sized buckets and convert to dummy variables
+    tr_df = utils.split_into_buckets(tr_df, "MonthlyIncome_Imputed", 10,
+                                     drop_original_col=False,
+                                     add_jitter=True)
+    te_df = utils.split_into_buckets(te_df, "MonthlyIncome_Imputed", 10,
+                                     drop_original_col=False,
+                                     add_jitter=True)
+
+    utils.log_column_NA_counts(tr_df)
+    utils.log_column_NA_counts(te_df)
 
     # Next, deal with the class imbalance
     tr_df = _handle_class_imbalance(tr_df, True)
