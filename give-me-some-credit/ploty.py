@@ -82,3 +82,10 @@ def plot_ROC_curve(est, X, y, pos_label=1, n_folds=5, title_suffix=""):
     plt.legend(loc="lower right")
     plt.show()
     return (desc, mean_auc)
+
+
+def plot_top_n_important_features(features, n=10, figsize=(15,8)):
+    # Plot the top N features
+    features.sort_values(by=["importance"], ascending=True).tail(n)\
+    .plot(x="feature", y="importance", kind="barh", figsize=figsize,
+          title="Top {} Most Important Features".format(n))
