@@ -45,11 +45,18 @@ def get_winsorized_version(x, cut_off_percentage=0.05):
     return mstats.winsorize(x, limits=[cut_off_percentage, cut_off_percentage])
 
 
+def jitter(a_series, noise_reduction=1000000):
+    # Credit: http://stackoverflow.com/a/37793940
+    return (np.random.random(
+        len(a_series)) * a_series.std() / noise_reduction) - (
+               a_series.std() / (2 * noise_reduction))
+
+
 def log_column_NA_counts(_df):
     for col_name in _df.columns.values.tolist():
         na_count = _df[col_name].isnull().sum()
         if na_count > 0:
-            logging.info("'{}' column has {} NAs"\
+            logging.info("'{}' column has {} NAs" \
                          .format(col_name, na_count))
 
 
@@ -154,6 +161,28 @@ def replace_outliers_in_df(_df, col_name):
     x = _df1[col_name].values
     logging.info("Mean, Median {} after  : {}, {}" \
                  .format(col_name, np.mean(x), np.median(x)))
+    return _df
+
+
+def split_into_buckets(_df, col_name, num_buckets, convert_into_dummies=True,
+                       drop_original_col=True, add_jitter=False):
+    bkt_col_name = "{}_bucket".format(col_name).lower() \
+        .replace(" ", "").replace(".0", "")
+
+    if add_jitter == False:
+        _df[bkt_col_name] = pd.qcut(_df[col_name], num_buckets, labels=False)
+    else:
+        s = _df[col_name]
+        _df[bkt_col_name] = pd.qcut(s + jitter(s), num_buckets, labels=False)
+
+    if convert_into_dummies == True:
+        bkt_dummies = pd.get_dummies(_df[bkt_col_name], prefix=bkt_col_name)
+        _df = pd.concat([_df, bkt_dummies], axis=1)
+        _df.drop([bkt_col_name], axis=1, inplace=True)
+
+    if drop_original_col == True:
+        _df.drop([col_name], axis=1, inplace=True)
+
     return _df
 
 
