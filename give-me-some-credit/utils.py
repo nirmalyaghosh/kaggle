@@ -13,6 +13,13 @@ from sklearn.metrics import auc, roc_curve
 from sklearn.model_selection import cross_val_score
 
 
+def describe_col(_df1, _df2, _col_name, index=["train", "test"]):
+    describe_df = pd.concat([pd.DataFrame([_df1[_col_name].describe()]),
+                             pd.DataFrame([_df2[_col_name].describe()])])
+    describe_df.index = index
+    return describe_df
+
+
 def double_mad_based_outliers(points, thresh=3.5):
     # Double MAD: (1) Calculate the MAD from the median of all points less
     # than or equal to the median and (2) the MAD from the median of all
