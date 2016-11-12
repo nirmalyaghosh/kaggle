@@ -88,6 +88,14 @@ def log_column_NA_counts(_df):
                          .format(col_name, na_count))
 
 
+def log_important_features(fitted_est, column_names, top_n=15):
+    features = pd.DataFrame()
+    features["feature"] = column_names
+    features["importance"] = fitted_est.feature_importances_
+    features = features.sort_values(by=["importance"], ascending=False)
+    logging.info("Top {} Features : \n{}".format(top_n, features.head(top_n)))
+
+
 def mad_based_outliers(points, thresh=3.5):
     # Credit : http://stackoverflow.com/a/22357811
     if len(points.shape) == 1:

@@ -63,12 +63,7 @@ def _main():
     est = RandomForestClassifier(n_estimators=200, n_jobs=-1, random_state=rs)
     # est = utils.train_estimator(est, X, y, 5)
     est = est.fit(X, y)
-    features = pd.DataFrame()
-    features["feature"] = cols
-    features["importance"] = est.feature_importances_
-    features = features.sort_values(by=["importance"], ascending=False)
-    topn = 15
-    logger.info("Top {} Features : \n{}".format(topn, features.head(topn)))
+    utils.log_important_features(est, cols, top_n=15)
 
     logger.info("Get the predictions ...")
     te_df_, _ = utils.normalize_df(te_df[cols])
