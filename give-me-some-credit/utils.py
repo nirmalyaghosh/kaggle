@@ -36,6 +36,27 @@ def double_mad_based_outliers(points, thresh=3.5):
     return modified_z_score > thresh
 
 
+def generate_bucket_col_name(col_name):
+    bkt_col_name = "{}_bucket".format(col_name).lower() \
+        .replace(" ", "").replace(".0", "")
+    return bkt_col_name
+
+
+def get_bucket_column_summary(_df, col_name, num_buckets=10):
+    # Stores the details into a DataFrame
+    # - helps to get an idea of the min, max of each bucket
+    bkt_col_name = generate_bucket_col_name(col_name)
+    bucket_tuples = []
+    for bin_id in range(num_buckets):
+        desc = _df[_df[bkt_col_name] == bin_id][col_name].describe()
+        t = (bin_id, desc["min"], desc["max"], desc["count"])
+        bucket_tuples.append(t)
+    bucket_df = pd.DataFrame(bucket_tuples, columns=[bkt_col_name, "min_value",
+                                                     "max_value",
+                                                     "num_records"])
+    return bucket_df
+
+
 def get_cv_scores(est, X, Y, scorer_name, nfold=5):
     est_name = est.__class__.__name__
     logging.info("Getting {}-fold CV score for {} model" \
@@ -172,9 +193,9 @@ def replace_outliers_in_df(_df, col_name):
 
 
 def split_into_buckets(_df, col_name, num_buckets, convert_into_dummies=True,
-                       drop_original_col=True, add_jitter=False):
-    bkt_col_name = "{}_bucket".format(col_name).lower() \
-        .replace(" ", "").replace(".0", "")
+                       drop_original_col=True, drop_bucket_col=True,
+                       add_jitter=False):
+    bkt_col_name = generate_bucket_col_name(col_name)
 
     if add_jitter == False:
         _df[bkt_col_name] = pd.qcut(_df[col_name], num_buckets, labels=False)
@@ -185,7 +206,8 @@ def split_into_buckets(_df, col_name, num_buckets, convert_into_dummies=True,
     if convert_into_dummies == True:
         bkt_dummies = pd.get_dummies(_df[bkt_col_name], prefix=bkt_col_name)
         _df = pd.concat([_df, bkt_dummies], axis=1)
-        _df.drop([bkt_col_name], axis=1, inplace=True)
+        if drop_bucket_col == True:
+            _df.drop([bkt_col_name], axis=1, inplace=True)
 
     if drop_original_col == True:
         _df.drop([col_name], axis=1, inplace=True)
