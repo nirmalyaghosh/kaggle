@@ -3,11 +3,26 @@ import logging
 
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sb
 from scipy import interp
 from sklearn.cross_validation import StratifiedKFold
 from sklearn.metrics import auc, roc_curve
 
 _almost_black = "#262626"
+
+
+def plot_diagonal_correlation_matrix(_df, figsize=(6, 6)):
+    corr = _df.corr()
+    mask = np.zeros_like(corr, dtype=np.bool)
+    mask[np.triu_indices_from(mask)] = True
+    f, ax = plt.subplots(figsize=figsize)
+    cmap = sb.diverging_palette(220, 10, as_cmap=True)
+    sb.heatmap(corr, mask=mask, cmap=cmap, vmax=.3,
+               square=True,
+               linewidths=.5, cbar_kws={"shrink": .5}, ax=ax)
+    plt.yticks(rotation=0)
+    plt.xticks(rotation=90)
+    plt.show()
 
 
 def plot_resampled_plots(counts, X_vis, y, X_res_vis, X_resampled, y_resampled,
