@@ -8,9 +8,8 @@ import seaborn as sb
 from scipy import interp
 from scipy.stats import mstats
 from sklearn import preprocessing
-from sklearn.cross_validation import StratifiedKFold
 from sklearn.metrics import auc, roc_curve
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.preprocessing import Imputer
 
 
@@ -98,10 +97,14 @@ def log_column_NA_counts(_df):
 
 def log_important_features(fitted_est, column_names, top_n=15):
     features = pd.DataFrame()
-    features["feature"] = column_names
-    features["importance"] = fitted_est.feature_importances_
-    features = features.sort_values(by=["importance"], ascending=False)
-    logging.info("Top {} Features : \n{}".format(top_n, features.head(top_n)))
+    try:
+        features["feature"] = column_names
+        features["importance"] = fitted_est.feature_importances_
+        features = features.sort_values(by=["importance"], ascending=False)
+        logging.info("Top {} Features : \n{}".format(top_n, features.head(top_n)))
+    except:
+        logging.info("Unable to log important features", exc_info=True)
+    return features
 
 
 def mad_based_outliers(points, thresh=3.5):
@@ -190,8 +193,8 @@ def replace_outliers_in_df(_df, col_name):
     _df1 = _df[pd.notnull(_df[col_name])]
     x = _df1[col_name].values
     indices = _df1.index.tolist()  # starts at 1, ends at 150000
-    logging.info("Mean, Median {} before : {}, {}" \
-                 .format(col_name, np.mean(x), np.median(x)))
+    logging.debug("Mean, Median {} before : {}, {}" \
+                  .format(col_name, np.mean(x), np.median(x)))
 
     # Calculate Winsorized version of the list of values
     xnew = get_winsorized_version(x)
@@ -203,8 +206,8 @@ def replace_outliers_in_df(_df, col_name):
     # Check afterwards
     _df1 = _df[pd.notnull(_df[col_name])]
     x = _df1[col_name].values
-    logging.info("Mean, Median {} after  : {}, {}" \
-                 .format(col_name, np.mean(x), np.median(x)))
+    logging.debug("Mean, Median {} after  : {}, {}" \
+                  .format(col_name, np.mean(x), np.median(x)))
     return _df
 
 
@@ -231,26 +234,36 @@ def split_into_buckets(_df, col_name, num_buckets, convert_into_dummies=True,
     return _df
 
 
-def train_estimator(est, X, y, n_folds):
+def train_estimator(est, X, y, n_splits):
     # Adapted from : https://git.io/vXu0Z
     mean_tpr = 0.0
     mean_fpr = np.linspace(0, 1, 100)
     logging.info("Training {}".format(est.__class__.__name__))
-    for i, (train, test) in enumerate(StratifiedKFold(y, n_folds=n_folds)):
-        probas_ = est.fit(X[train], y[train]).predict_proba(X[test])
+    best_roc_auc = 0.0
+    best = None
+    i = 0
+
+    skf = StratifiedKFold(n_splits=n_splits, random_state=0)
+    for train_index, test_index in skf.split(X, y):
+        fitted_est = est.fit(X[train_index], y[train_index])
+        p = fitted_est.predict_proba(X[test_index])
         # Compute ROC curve and area under the curve
-        fpr, tpr, thresholds = roc_curve(y[test], probas_[:, 1], pos_label=1)
+        fpr, tpr, thresholds = roc_curve(y[test_index], p[:, 1], pos_label=1)
         mean_tpr += interp(mean_fpr, fpr, tpr)
         mean_tpr[0] = 0.0
         roc_auc = auc(fpr, tpr)
-        logging.info("ROC fold {} (area = {:.2f})".format(i, roc_auc))
+        if roc_auc > best_roc_auc:
+            best_roc_auc = roc_auc
+            best_est = fitted_est
+        logging.info("\tROC fold {} (area = {:.2f})".format(i, roc_auc))
+        i += 1
 
-    mean_tpr /= n_folds
+    mean_tpr /= skf.get_n_splits(X, y)
     mean_tpr[-1] = 1.0
     mean_auc = auc(mean_fpr, mean_tpr)
     mean_auc_str = "Mean ROC (area = {:.2f})".format(mean_auc)
     logging.info(mean_auc_str)
-    return est
+    return best_est
 
 
 def unscale_column_values(predictions, col_idx, scaler):

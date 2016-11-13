@@ -14,8 +14,14 @@ import os
 import numpy as np
 import pandas as pd
 from imblearn.under_sampling import RandomUnderSampler
+from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.externals import joblib
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedShuffleSplit
+
+# from sklearn.svm import SVC
 
 import feats
 import utils
@@ -50,6 +56,8 @@ def _main():
     tr_df, te_df = _preprocess_data(tr_df, te_df)
 
     # Add features
+    tr_df, te_df = feats.add_features_based_on_NumOCLL(tr_df, te_df)
+    tr_df, te_df = feats.add_features_based_on_NumRELL(tr_df, te_df)
     tr_df, te_df = feats.add_features_based_on_RUoUL(tr_df, te_df)
 
     # Preparing dataset for training
@@ -61,18 +69,81 @@ def _main():
     X = X.as_matrix()
     y = tr_df["SeriousDlqin2yrs"].values
 
+    # Split
+    sss = StratifiedShuffleSplit(n_splits=3, random_state=rs, test_size=0.3)
+    for train_index, test_index in sss.split(X, y):
+        X_train, X_valid, y_train, y_valid = X[train_index], X[test_index], y[
+            train_index], y[test_index]
+
+    logger.info("X {}, train {}, valid {}" \
+                .format(X.shape, X_train.shape, X_valid.shape))
+
     # Train
     logger.info("Features used for training : {}".format(cols))
-    est = RandomForestClassifier(n_estimators=200, n_jobs=-1, random_state=rs)
-    # est = utils.train_estimator(est, X, y, 5)
-    est = est.fit(X, y)
-    utils.log_important_features(est, cols, top_n=15)
+    base_estimators = [
+        ExtraTreesClassifier(n_estimators=400, n_jobs=-1, random_state=rs),
+        LogisticRegressionCV(random_state=rs),
+        RandomForestClassifier(bootstrap=True, criterion="gini",
+                               max_depth=None, max_features=5,
+                               n_estimators=150, n_jobs=-1, random_state=rs),
+        # SVC(C=0.01, gamma=0.01, kernel="rbf", probability=True,
+        #     random_state=rs)
+    ]
 
-    logger.info("Get the predictions ...")
+    # Each classifier is trained on 5 stratified splits
+    # and the one (amongst the 5) with best AUC score is selected
+    best_auc = 0.0
+    common_top_n_features = []
+    for est in base_estimators:
+        fitted_est = utils.train_estimator(est, X_train, y_train, 5)
+        top_n_features = []
+        top_n_features_df = utils.log_important_features(est, cols)
+        if top_n_features_df.shape[0] > 0:
+            top_n_features = top_n_features_df.head(15).feature.values.tolist()
+        common_top_n_features.extend(top_n_features)
+        common_top_n_features = list(set(common_top_n_features))
+        logger.info("{} common_top_n_features : {}" \
+                    .format(len(common_top_n_features), common_top_n_features))
+        preds = fitted_est.predict(X_valid)
+        score = roc_auc_score(y_valid, preds)
+        logger.info("AUC : {:.5f}".format(score))
+        if score > best_auc:
+            best_auc = score
+            best_est = fitted_est
+
+    logger.info("Best estimator : {}".format(best_est))
+
+    # Re-fitting the best estimator using the common top N features
+    refit = False  # TODO read from config
+    if refit == True:
+        logger.info("Re-fitting best estimator {} using top N features ..." \
+                    .format(best_est.__class__.__name__))
+        X, _ = utils.normalize_df(train_df[common_top_n_features])
+        X = X.as_matrix()
+        y = tr_df["SeriousDlqin2yrs"].values
+        sss = StratifiedShuffleSplit(n_splits=3, random_state=rs,
+                                     test_size=0.3)
+        for train_index, test_index in sss.split(X, y):
+            X_train, X_valid, y_train, y_valid = X[train_index], X[test_index], \
+                                                 y[train_index], y[test_index]
+        fitted_best_est = utils.train_estimator(best_est, X_train, y_train, 5)
+        preds = fitted_best_est.predict(X_valid)
+        score = roc_auc_score(y_valid, preds)
+        logger.info("AUC : {:.5f}".format(score))
+        if score > best_auc:
+            best_auc = score
+            best_est = fitted_est
+
+    # Getting the predictions
+    logger.info("Get the predictions using {} ...".format(best_est))
     te_df_, _ = utils.normalize_df(te_df[cols])
     identifiers = te_df_.index.tolist()
-    probabilities = [x[1] for x in est.predict_proba(te_df_)]
-    _prepare_submission_file(identifiers, probabilities)
+    if refit == True:
+        p = [x[1] for x in
+             best_est.predict_proba(te_df_[common_top_n_features])]
+    else:
+        p = [x[1] for x in best_est.predict_proba(te_df_)]
+    _prepare_submission_file(identifiers, p)
 
 
 def _handle_class_imbalance(_df, is_train=True):
@@ -289,7 +360,8 @@ def _preprocess_data(tr_df, te_df):
     # Next, predict the MonthlyIncome (where missing)
     tr_df, te_df = _predict_monthly_income(tr_df, te_df)
 
-    # Split MonthlyIncome into 10 near-equal-sized buckets and convert to dummy variables
+    # Split MonthlyIncome into 10 near-equal-sized buckets
+    # and convert to dummy variables
     tr_df = utils.split_into_buckets(tr_df, "MonthlyIncome_Imputed", 10,
                                      drop_original_col=False,
                                      add_jitter=True)
@@ -300,9 +372,9 @@ def _preprocess_data(tr_df, te_df):
     utils.log_column_NA_counts(tr_df)
     utils.log_column_NA_counts(te_df)
 
-    # Next, deal with the class imbalance
-    tr_df = _handle_class_imbalance(tr_df, True)
-    te_df = _handle_class_imbalance(te_df, False)
+    # # Next, deal with the class imbalance
+    # tr_df = _handle_class_imbalance(tr_df, True)
+    # te_df = _handle_class_imbalance(te_df, False)
 
     return tr_df, te_df
 

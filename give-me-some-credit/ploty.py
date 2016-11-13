@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sb
 from scipy import interp
-from sklearn.cross_validation import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import auc, roc_curve
 
 _almost_black = "#262626"
@@ -99,8 +99,8 @@ def plot_ROC_curve(est, X, y, pos_label=1, n_folds=5, title_suffix=""):
     return (desc, mean_auc)
 
 
-def plot_top_n_important_features(features, n=10, figsize=(15,8)):
+def plot_top_n_important_features(features, n=10, figsize=(15, 8)):
     # Plot the top N features
-    features.sort_values(by=["importance"], ascending=True).tail(n)\
-    .plot(x="feature", y="importance", kind="barh", figsize=figsize,
-          title="Top {} Most Important Features".format(n))
+    features.sort_values(by=["importance"], ascending=True).tail(n) \
+        .plot(x="feature", y="importance", kind="barh", figsize=figsize,
+              title="Top {} Most Important Features".format(n))
