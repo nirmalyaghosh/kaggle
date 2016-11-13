@@ -16,7 +16,6 @@ import pandas as pd
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.externals import joblib
-from sklearn.preprocessing import Imputer
 
 import utils
 
@@ -82,11 +81,6 @@ def _handle_class_imbalance(_df, is_train=True):
     df_tmp = _df[["MonthlyIncome"]]
     df2.drop(["MonthlyIncome", "SeriousDlqin2yrs"], axis=1, inplace=True)
 
-    # Imputing missing values for the 'NumDependents' column
-    imp = Imputer(missing_values="NaN", strategy="median", axis=1)
-    X = imp.fit_transform(df2.as_matrix())
-    df2 = pd.DataFrame(X, columns=df2.columns.values)
-
     # Under-sampling the majority class in train data
     logger.info("Under-sampling the majority class in {} ...".format(df_name))
     imb_handler = RandomUnderSampler()
@@ -132,7 +126,7 @@ def _predict_monthly_income(tr_df, te_df):
 
     # Prepare the dataset : split
     cols = ["RUoUL", "age", "NumLate3059", "NumLate6089", "NumLate90",
-            "DebtRatio", "NumOCLL", "NumRELL"]
+            "DebtRatio", "NumOCLL", "NumRELL", "NumDependents"]
     X_train, Y_train = tr_tr[cols], tr_tr[["MonthlyIncome"]]
     Y_train = Y_train.MonthlyIncome.ravel()
     X_test, Y_test = tr_te[cols], tr_te[["MonthlyIncome"]]
@@ -237,8 +231,20 @@ def _prepare_submission_file(identifiers, probabilities):
 
 
 def _preprocess_data(tr_df, te_df):
+    logger.info("Preprocessing the data ...")
     tr_df.rename(columns=colmap, inplace=True)
     te_df.rename(columns=colmap, inplace=True)
+
+    # Imputing missing values for the 'NumDependents' column
+    excluded_cols = ["MonthlyIncome", "SeriousDlqin2yrs"]
+    _tmp = tr_df[tr_df.columns.difference(excluded_cols)]
+    _tmp = utils.handle_missing_values(_tmp, "median")
+    tr_df["NumDependents"] = _tmp["NumDependents"]
+    tr_df["NumDependents"].fillna(0, inplace=True)  # Because 1 gets left out
+    _tmp = te_df[te_df.columns.difference(excluded_cols)]
+    _tmp = utils.handle_missing_values(_tmp, "median")
+    te_df["NumDependents"] = _tmp["NumDependents"]
+    te_df["NumDependents"].fillna(0, inplace=True)  # Because 1 gets left out
 
     # Do a bit of pre-processing (Train) : Replace the outliers
     logger.info("Replacing outliers in train data ...")
@@ -267,7 +273,8 @@ def _preprocess_data(tr_df, te_df):
 
     # Reorder the columns
     cols = ["RUoUL", "age", "NumLate3059", "NumLate6089", "NumLate90",
-            "DebtRatio", "NumOCLL", "NumRELL", "MonthlyIncome"]
+            "DebtRatio", "NumOCLL", "NumRELL", "MonthlyIncome",
+            "NumDependents"]
     tr_df = tr_df[cols]
     te_df = te_df[cols]
 

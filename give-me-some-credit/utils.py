@@ -11,6 +11,7 @@ from sklearn import preprocessing
 from sklearn.cross_validation import StratifiedKFold
 from sklearn.metrics import auc, roc_curve
 from sklearn.model_selection import cross_val_score
+from sklearn.preprocessing import Imputer
 
 
 def describe_col(_df1, _df2, _col_name, index=["train", "test"]):
@@ -71,6 +72,13 @@ def get_winsorized_version(x, cut_off_percentage=0.05):
     # Returns a Winsorized version of the input,
     # with specified cut off either end
     return mstats.winsorize(x, limits=[cut_off_percentage, cut_off_percentage])
+
+
+def handle_missing_values(_df, strategy="median"):
+    imp = Imputer(missing_values="NaN", strategy="median", axis=1)
+    X = imp.fit_transform(_df.as_matrix())
+    _df = pd.DataFrame(X, columns=_df.columns.values)
+    return _df
 
 
 def jitter(a_series, noise_reduction=1000000):
