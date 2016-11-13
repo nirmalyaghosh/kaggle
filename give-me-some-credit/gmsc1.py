@@ -17,6 +17,7 @@ from imblearn.under_sampling import RandomUnderSampler
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.externals import joblib
 
+import feats
 import utils
 
 logger = logging.getLogger()
@@ -42,18 +43,21 @@ rs = 329521  # random_state
 
 
 def _main():
-    np.random.seed(329521)
+    np.random.seed(rs)
     logger.info("Running script for Approach 1")
     tr_df = pd.read_csv(os.path.join("data", "cs-training.csv"), index_col=0)
     te_df = pd.read_csv(os.path.join("data", "cs-test.csv"), index_col=0)
     tr_df, te_df = _preprocess_data(tr_df, te_df)
 
-    # Preparing dataset for training
-    cols = list(tr_df.columns.values.tolist())
-    for col in ["age", "MonthlyIncome", "SeriousDlqin2yrs"]:
-        cols.remove(col)
+    # Add features
+    tr_df, te_df = feats.add_features_based_on_RUoUL(tr_df, te_df)
 
-    X, _ = utils.normalize_df(tr_df[cols])
+    # Preparing dataset for training
+    excluded_cols = ["age", "MonthlyIncome", "MonthlyIncome_Imputed",
+                     "SeriousDlqin2yrs"]
+    train_df = tr_df[tr_df.columns.difference(excluded_cols)]
+    cols = train_df.columns.values.tolist()
+    X, _ = utils.normalize_df(train_df)
     X = X.as_matrix()
     y = tr_df["SeriousDlqin2yrs"].values
 
