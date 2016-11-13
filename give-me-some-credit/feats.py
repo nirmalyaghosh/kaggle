@@ -12,6 +12,32 @@ import pandas as pd
 import utils
 
 
+def add_features_based_on_NumOCLL(_tr_df, _te_df):
+    # Generates the features based on NumberOfOpenCreditLinesAndLoans
+    num_buckets = 8
+    _tr_df = utils.split_into_buckets(_tr_df, "NumOCLL", num_buckets,
+                                      drop_original_col=True,
+                                      drop_bucket_col=True)
+    _te_df = utils.split_into_buckets(_te_df, "NumOCLL", num_buckets,
+                                      drop_original_col=True,
+                                      drop_bucket_col=True)
+    return _tr_df, _te_df
+
+
+def add_features_based_on_NumRELL(_tr_df, _te_df):
+    # Generates the features based on NumberRealEstateLoansOrLines
+    num_buckets = 4
+    _tr_df = utils.split_into_buckets(_tr_df, "NumRELL", num_buckets,
+                                      drop_original_col=True,
+                                      drop_bucket_col=True,
+                                      add_jitter=True)
+    _te_df = utils.split_into_buckets(_te_df, "NumRELL", num_buckets,
+                                      drop_original_col=True,
+                                      drop_bucket_col=True,
+                                      add_jitter=True)
+    return _tr_df, _te_df
+
+
 def add_features_based_on_RUoUL(_tr_df, _te_df):
     # Generates the 13 features based on RevolvingUtilizationOfUnsecuredLines
     logging.info("Adding 13 new features based on RUoUL ...")
